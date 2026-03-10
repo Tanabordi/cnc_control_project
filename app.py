@@ -218,6 +218,12 @@ class App(QWidget):
 
         if state.lower().startswith("alarm") and not self._alarm_active:
             self.on_alarm(state)
+        elif self._alarm_active and not state.lower().startswith("alarm"):
+            self._alarm_active = False
+            self._last_alarm_was_hard_limit = False
+            cp = self.control_page
+            _set_enabled(cp.jog_buttons, True)
+            cp.home_btn.setEnabled(True)
 
     # -------- Stream line tracking --------
     def _on_line_sent(self, idx: int, cmd: str):
@@ -466,11 +472,18 @@ class App(QWidget):
         if not path:
             return
 
+        import math
         safe_z = clamp(self.settings.safe_z, self.settings.zmin, self.settings.zmax)
         lines = ["G90", "G21", "G54", f"G0 Z{safe_z:.3f}"]
+        prev = None
         for p in self.points:
-            f = int(p.feed_to_next)
+            if p.laser_time_s > 0 and prev is not None:
+                dist = math.sqrt((p.x - prev.x)**2 + (p.y - prev.y)**2 + (p.z - prev.z)**2)
+                f = max(1, round(dist / p.laser_time_s * 60))
+            else:
+                f = int(p.feed_to_next)
             lines += [f"; {p.name}", f"G1 X{p.x:.3f} Y{p.y:.3f} Z{p.z:.3f} F{f}"]
+            prev = p
         Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.on_log(f"Exported: {path}")
 
@@ -516,16 +529,25 @@ class App(QWidget):
             page.state_lbl.setText(msg)
         _set_enabled(self.control_page.jog_buttons, False)
         self.control_page.home_btn.setEnabled(False)
-        self.on_log(f"{msg} — send $X (Unlock) to clear")
+        if self._last_alarm_was_hard_limit:
+            self.on_log("Hard limit! ขยับแกนออกจาก endstop ด้วยมือก่อน แล้วกด Unlock ($X)")
+        else:
+            self.on_log(f"{msg} — กด Unlock ($X) เพื่อ clear")
 
     def on_grbl_reset(self):
         was_hard_limit = getattr(self, '_last_alarm_was_hard_limit', False)
+        was_alarm = self._alarm_active
         self._alarm_active = False
         self._last_alarm_was_hard_limit = False
+        if was_alarm:
+            cp = self.control_page
+            _set_enabled(cp.jog_buttons, True)
+            cp.home_btn.setEnabled(True)
+            if not self._streaming_now:
+                self.on_stream_state("idle")
         import time as _time
         now = _time.time()
         if was_hard_limit:
-            self.on_log("Hard limit alarm — move machine away from endstop before unlocking.")
             return
         if self._connected and self.settings.auto_unlock_after_connect:
             if now - self._last_auto_x_time > 2.0:
