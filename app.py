@@ -216,6 +216,9 @@ class App(QWidget):
             page.mpos_z.setText(f"{mz:.3f}")
             page.state_lbl.setText(state)
 
+        if state.lower().startswith("alarm") and not self._alarm_active:
+            self.on_alarm(state)
+
     # -------- Stream line tracking --------
     def _on_line_sent(self, idx: int, cmd: str):
         self.run_page.update_cmd_row_sent(idx)
@@ -508,15 +511,22 @@ class App(QWidget):
 
     def on_alarm(self, msg: str):
         self._alarm_active = True
+        self._last_alarm_was_hard_limit = "1" in msg  # ALARM:1 = hard limit
         for page in (self.control_page, self.run_page):
             page.state_lbl.setText(msg)
         _set_enabled(self.control_page.jog_buttons, False)
+        self.control_page.home_btn.setEnabled(False)
         self.on_log(f"{msg} — send $X (Unlock) to clear")
 
     def on_grbl_reset(self):
+        was_hard_limit = getattr(self, '_last_alarm_was_hard_limit', False)
         self._alarm_active = False
+        self._last_alarm_was_hard_limit = False
         import time as _time
         now = _time.time()
+        if was_hard_limit:
+            self.on_log("Hard limit alarm — move machine away from endstop before unlocking.")
+            return
         if self._connected and self.settings.auto_unlock_after_connect:
             if now - self._last_auto_x_time > 2.0:
                 self._last_auto_x_time = now

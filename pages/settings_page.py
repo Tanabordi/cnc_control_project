@@ -269,6 +269,9 @@ class SettingsPage(QWidget):
         tx = max(abs(s.xmin), abs(s.xmax))
         ty = max(abs(s.ymin), abs(s.ymax))
         tz = max(abs(s.zmin), abs(s.zmax))
+        if tx == 0 or ty == 0 or tz == 0:
+            self.append_log(f"Sync skipped: limit values contain 0 (X={tx}, Y={ty}, Z={tz}). Set correct values first.")
+            return
         w.send_line(f"$130={tx:.3f}")
         w.send_line(f"$131={ty:.3f}")
         w.send_line(f"$132={tz:.3f}")
