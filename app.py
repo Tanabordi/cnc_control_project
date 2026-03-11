@@ -170,7 +170,8 @@ class App(QWidget):
 
         _set_enabled([cp.home_btn, cp.unlock_btn, cp.zero_btn, cp.go_zero_btn, cp.reset_btn, cp.estop_btn], ok)
         _set_enabled(cp.jog_buttons, ok)
-        _set_enabled([cp.load_points_gcode_btn, cp.capture_btn, cp.update_btn, cp.delete_btn, cp.clear_btn,
+        _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
+                      cp.update_btn, cp.delete_btn, cp.clear_btn,
                       cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn], ok)
 
         cp.update_btn.setEnabled(False)
@@ -193,8 +194,9 @@ class App(QWidget):
         locked = self._streaming_now
         cp = self.control_page
         _set_enabled(cp.jog_buttons, self._connected and (not locked))
-        _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.capture_btn, cp.update_btn, cp.delete_btn,
-                      cp.clear_btn, cp.export_gcode_btn, cp.preview3d_btn], self._connected and (not locked))
+        _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
+                      cp.update_btn, cp.delete_btn, cp.clear_btn,
+                      cp.export_gcode_btn, cp.preview3d_btn], self._connected and (not locked))
         if locked:
             cp.update_btn.setEnabled(False)
         self.run_page.set_stream_state(st)
@@ -463,6 +465,42 @@ class App(QWidget):
         self.points = points
         self._refresh_table_from_points()
         self.on_log(f"Loaded points from G-code: {path} ({len(self.points)} points)")
+
+    def load_pcb_csv(self):
+        from pcb_import import parse_pcb_csv, PcbCalibDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import PCB CSV", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+
+        try:
+            components, has_side = parse_pcb_csv(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"ไม่สามารถอ่านไฟล์ CSV ได้:\n{e}")
+            return
+
+        if not components:
+            QMessageBox.warning(self, "Empty", "ไม่พบ component ในไฟล์ CSV")
+            return
+
+        self.on_log(f"PCB CSV: {len(components)} components จาก {path}")
+
+        dlg = PcbCalibDialog(components, has_side, self.worker, self)
+        if dlg.exec() != PcbCalibDialog.Accepted:
+            return
+
+        wp = dlg.get_waypoints(
+            default_feed=int(self.control_page.wp_feed.value()),
+            default_time=float(self.control_page.wp_laser_time.value()),
+        )
+        if not wp:
+            QMessageBox.warning(self, "Error", "ไม่สามารถคำนวณ waypoints ได้ (ตรวจสอบ calibration points)")
+            return
+
+        self.points = wp
+        self._refresh_table_from_points()
+        self.on_log(f"Imported {len(self.points)} waypoints from PCB CSV")
 
     def export_gcode(self):
         if not self.points:

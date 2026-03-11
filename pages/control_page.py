@@ -68,6 +68,7 @@ class ControlPage(QWidget):
         L.addLayout(teach)
 
         self.load_points_gcode_btn = _btn("Load Points (.gcode)")
+        self.load_csv_pcb_btn = _btn("Import PCB CSV")
         self.capture_btn = _btn("Capture Waypoint")
         self.update_btn = _btn("Update Selected")
         self.delete_btn = _btn("Delete Selected")
@@ -77,8 +78,9 @@ class ControlPage(QWidget):
 
         btn_bar = QHBoxLayout()
         btn_bar.setSpacing(6)
-        for b in [self.load_points_gcode_btn, self.capture_btn, self.update_btn,
-                  self.delete_btn, self.clear_btn, self.preview3d_btn, self.export_gcode_btn]:
+        for b in [self.load_points_gcode_btn, self.load_csv_pcb_btn, self.capture_btn,
+                  self.update_btn, self.delete_btn, self.clear_btn,
+                  self.preview3d_btn, self.export_gcode_btn]:
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             btn_bar.addWidget(b)
         L.addLayout(btn_bar)
@@ -302,6 +304,7 @@ class ControlPage(QWidget):
         self.move_btn.clicked.connect(self.app.move_to_target)
 
         self.load_points_gcode_btn.clicked.connect(self.app.load_points_gcode)
+        self.load_csv_pcb_btn.clicked.connect(self.app.load_pcb_csv)
         self.capture_btn.clicked.connect(self.app.capture_point)
         self.update_btn.clicked.connect(self.app.update_selected_point)
         self.delete_btn.clicked.connect(self.app.delete_selected_point)
