@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox, QWidget, QComboBox,
     QMessageBox, QSpinBox, QSizePolicy, QGridLayout,
+    QDoubleSpinBox,
 )
 
 from models import Point
@@ -294,9 +295,17 @@ class PcbCalibDialog(QDialog):
         step_row = QHBoxLayout()
         step_row.addWidget(QLabel("Step (mm):"))
         self.jog_step = QComboBox()
-        self.jog_step.addItems(["0.1", "1", "10"])
+        self.jog_step.addItems(["0.1", "1", "10", "Custom..."])
         self.jog_step.setCurrentText("1")
+        self.jog_step.currentTextChanged.connect(self._on_step_changed)
         step_row.addWidget(self.jog_step)
+        self.jog_step_custom = QDoubleSpinBox()
+        self.jog_step_custom.setRange(0.001, 9999.0)
+        self.jog_step_custom.setDecimals(3)
+        self.jog_step_custom.setValue(5.0)
+        self.jog_step_custom.setSuffix("")
+        self.jog_step_custom.setVisible(False)
+        step_row.addWidget(self.jog_step_custom)
         step_row.addWidget(QLabel("Feed:"))
         self.jog_feed = QSpinBox()
         self.jog_feed.setRange(1, 10000)
@@ -372,8 +381,14 @@ class PcbCalibDialog(QDialog):
             x, y, z = wpos
             self.pos_lbl.setText(f"X: {x:9.3f}   Y: {y:9.3f}   Z: {z:9.3f}")
 
+    def _on_step_changed(self, text: str):
+        self.jog_step_custom.setVisible(text == "Custom...")
+
     def _jog(self, axis: str, sign: int):
-        step = float(self.jog_step.currentText())
+        if self.jog_step.currentText() == "Custom...":
+            step = self.jog_step_custom.value()
+        else:
+            step = float(self.jog_step.currentText())
         feed = self.jog_feed.value()
         delta = sign * step
         self.worker.send_line(f"$J=G91 {axis}{delta:.3f} F{feed}")
