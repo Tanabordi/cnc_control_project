@@ -110,6 +110,13 @@ class RunPage(QWidget):
         self.state_lbl = QLabel("-")
         sstat.addWidget(self.state_lbl, 1)
         sg.addLayout(sstat)
+
+        pnrow = QHBoxLayout()
+        pnrow.addWidget(QLabel("Pins (Pn):"))
+        self.pn_lbl = QLabel("-")
+        pnrow.addWidget(self.pn_lbl, 1)
+        sg.addLayout(pnrow)
+
         R.addWidget(state_box)
 
         # Jog section

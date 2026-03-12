@@ -232,7 +232,8 @@ class GrblWorker(QThread):
                             if wpos is None and mpos is not None:
                                 wpos = mpos
                             if wpos:
-                                payload = {"state": state, "wpos": wpos, "mpos": mpos, "raw": line}
+                                pn_str = extract_field(line, "Pn")
+                                payload = {"state": state, "wpos": wpos, "mpos": mpos, "pn": pn_str or "", "raw": line}
                                 self._last_status = payload
                                 self.status.emit(payload)
 

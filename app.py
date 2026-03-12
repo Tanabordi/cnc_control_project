@@ -39,6 +39,7 @@ class App(QWidget):
         self._streaming_now = False
         self._alarm_active = False
         self._last_auto_x_time = 0.0  # cooldown: prevent $X spam
+        self._home_state = ""  # "after_H" | "after_dir_set" | "after_HZ"
 
         # --- Top bar ---
         top = QHBoxLayout()
@@ -209,6 +210,7 @@ class App(QWidget):
         mpos = payload.get("mpos")
         mx, my, mz = mpos if mpos else (wx, wy, wz)
 
+        pn = payload.get("pn") or ""
         for page in (self.control_page, self.run_page):
             page.wpos_x.setText(f"{wx:.3f}")
             page.wpos_y.setText(f"{wy:.3f}")
@@ -217,6 +219,7 @@ class App(QWidget):
             page.mpos_y.setText(f"{my:.3f}")
             page.mpos_z.setText(f"{mz:.3f}")
             page.state_lbl.setText(state)
+            page.pn_lbl.setText(pn if pn else "-")
 
         if state.lower().startswith("alarm") and not self._alarm_active:
             self.on_alarm(state)
@@ -241,6 +244,17 @@ class App(QWidget):
         self.control_page.append_log(msg)
         self.run_page.append_log(msg)
         self.settings_page.append_log(msg)
+        if self._home_state and msg.strip().lower() == "ok":
+            if self._home_state == "after_H":
+                self._home_state = "after_dir_set"
+                self.worker.send_line("$3=4")
+            elif self._home_state == "after_dir_set":
+                self._home_state = "after_HZ"
+                self.worker.send_line("$HZ")
+                self.on_log("Homing Z...")
+            elif self._home_state == "after_HZ":
+                self._home_state = ""
+                self.worker.send_line("$3=0")
 
     # -------- RunPage jog/move --------
     def run_jog(self, axis: str, delta: float):
@@ -538,6 +552,7 @@ class App(QWidget):
     def do_home(self):
         if not self._connected:
             return
+        self._home_state = "after_H"
         self.worker.send_line("$H")
         self.on_log("Homing started...")
 
