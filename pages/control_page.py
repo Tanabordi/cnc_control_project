@@ -71,6 +71,12 @@ class ControlPage(QWidget):
         self.wp_z_safe.setDecimals(3)
         self.wp_z_safe.setValue(-2.0)
         teach.addWidget(self.wp_z_safe)
+
+        teach.addWidget(QLabel("Power (S):"))
+        self.wp_power = QSpinBox()
+        self.wp_power.setRange(0, 255)
+        self.wp_power.setValue(255)
+        teach.addWidget(self.wp_power)
         teach.addStretch(1)
         L.addLayout(teach)
 
@@ -93,8 +99,8 @@ class ControlPage(QWidget):
         L.addLayout(btn_bar)
 
         self.wp_table = WaypointTable(self)
-        self.wp_table.setColumnCount(6)
-        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y)", "Z work", "Z safe", "Speed(F)", "Time (s)"])
+        self.wp_table.setColumnCount(7)
+        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y)", "Z work", "Z safe", "Speed(F)", "Time (s)", "Power"])
         self.wp_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.wp_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.wp_table.setSelectionMode(QTableWidget.SingleSelection)

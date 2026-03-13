@@ -343,6 +343,7 @@ class App(QWidget):
         cp.wp_feed.setValue(int(p.feed_to_next))
         cp.wp_laser_time.setValue(float(p.laser_time_s))
         cp.wp_z_safe.setValue(float(p.z_safe))
+        cp.wp_power.setValue(int(p.power))
         cp.tx.setValue(float(p.x))
         cp.ty.setValue(float(p.y))
         cp.tz.setValue(float(p.z))
@@ -378,14 +379,16 @@ class App(QWidget):
         f = int(cp.wp_feed.value())
         t = float(cp.wp_laser_time.value())
         zs = float(cp.wp_z_safe.value())
+        pw = int(cp.wp_power.value())
         p = self.points[row]
         p.x, p.y, p.z = float(x), float(y), float(z)
         p.feed_to_next = int(f)
         p.laser_time_s = float(t)
         p.z_safe = zs
+        p.power = pw
         self._refresh_table_from_points()
         cp.wp_table.selectRow(row)
-        self.on_log(f"Updated waypoint #{row+1} -> X{x:.3f} Y{y:.3f} Z{z:.3f} Zsafe{zs:.3f} F{f} T{t:.2f}")
+        self.on_log(f"Updated waypoint #{row+1} -> X{x:.3f} Y{y:.3f} Z{z:.3f} Zsafe{zs:.3f} F{f} T{t:.2f} S{pw}")
 
     def _refresh_table_from_points(self):
         from PySide6.QtWidgets import QTableWidgetItem
@@ -400,6 +403,7 @@ class App(QWidget):
             cp.wp_table.setItem(r, 3, QTableWidgetItem(f"{p.z_safe:.3f}"))
             cp.wp_table.setItem(r, 4, QTableWidgetItem(str(int(p.feed_to_next))))
             cp.wp_table.setItem(r, 5, QTableWidgetItem(f"{float(p.laser_time_s):.2f}"))
+            cp.wp_table.setItem(r, 6, QTableWidgetItem(str(int(p.power))))
 
         cp.preview3d_btn.setEnabled(len(self.points) >= 2 and self._connected)
         cp.export_gcode_btn.setEnabled(len(self.points) >= 1 and self._connected)
@@ -418,8 +422,9 @@ class App(QWidget):
         f = int(cp.wp_feed.value())
         t = float(cp.wp_laser_time.value())
         zs = float(cp.wp_z_safe.value())
+        pw = int(cp.wp_power.value())
         idx = len(self.points) + 1
-        self.points.append(Point(name=f"P{idx}", x=x, y=y, z=z, feed_to_next=f, laser_time_s=t, z_safe=zs))
+        self.points.append(Point(name=f"P{idx}", x=x, y=y, z=z, feed_to_next=f, laser_time_s=t, z_safe=zs, power=pw))
         self._refresh_table_from_points()
 
     def delete_selected_point(self):
@@ -526,7 +531,9 @@ class App(QWidget):
                 f"; {p.name}",
                 f"G0 X{p.x:.3f} Y{p.y:.3f} Z{p.z_safe:.3f}",
                 f"G1 Z{p.z:.3f} F{f}",
+                f"M3 S{p.power}",
                 f"G4 P{p.laser_time_s:.3f}",
+                f"M5",
                 f"G0 Z{p.z_safe:.3f}",
             ]
         Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
