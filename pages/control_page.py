@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QFormLayout, QTextEdit, QLineEdit,
     QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QGridLayout, QSizePolicy, QSplitter
+    QGridLayout, QSizePolicy, QSplitter, QApplication, QFileDialog
 )
 
 from utils import _btn, _ts
@@ -64,6 +64,13 @@ class ControlPage(QWidget):
         self.wp_laser_time.setDecimals(2)
         self.wp_laser_time.setValue(0.50)
         teach.addWidget(self.wp_laser_time)
+
+        teach.addWidget(QLabel("Z safe:"))
+        self.wp_z_safe = QDoubleSpinBox()
+        self.wp_z_safe.setRange(-99999.0, 0.0)
+        self.wp_z_safe.setDecimals(3)
+        self.wp_z_safe.setValue(-2.0)
+        teach.addWidget(self.wp_z_safe)
         teach.addStretch(1)
         L.addLayout(teach)
 
@@ -86,8 +93,8 @@ class ControlPage(QWidget):
         L.addLayout(btn_bar)
 
         self.wp_table = WaypointTable(self)
-        self.wp_table.setColumnCount(4)
-        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y,Z)", "Speed(F)", "Time (s)"])
+        self.wp_table.setColumnCount(6)
+        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y)", "Z work", "Z safe", "Speed(F)", "Time (s)"])
         self.wp_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.wp_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.wp_table.setSelectionMode(QTableWidget.SingleSelection)
@@ -108,8 +115,16 @@ class ControlPage(QWidget):
         lv.addWidget(self.log_view)
         clear_row = QHBoxLayout()
         self.clear_log_btn = _btn("Clear Log", enabled=True)
+        self.copy_log_btn = _btn("Copy Log", enabled=True)
+        self.save_log_btn = _btn("Save Log", enabled=True)
         self.clear_log_btn.clicked.connect(self.log_view.clear)
+        self.copy_log_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(self.log_view.toPlainText())
+        )
+        self.save_log_btn.clicked.connect(self._save_log)
         clear_row.addWidget(self.clear_log_btn)
+        clear_row.addWidget(self.copy_log_btn)
+        clear_row.addWidget(self.save_log_btn)
         clear_row.addStretch(1)
         lv.addLayout(clear_row)
         L.addWidget(log_box)
@@ -319,7 +334,21 @@ class ControlPage(QWidget):
         self.export_gcode_btn.clicked.connect(self.app.export_gcode)
 
     def append_log(self, line: str):
-        self.log_view.append(f"[{_ts()}] {line}")
+        import html
+        text = f"[{_ts()}] {line}"
+        low = line.lower()
+        if "error" in low:
+            color = "#ff6b6b"
+        elif "alarm" in low:
+            color = "#ffa500"
+        elif low.strip() == "ok":
+            color = "#69db7c"
+        else:
+            color = ""
+        if color:
+            self.log_view.append(f'<span style="color:{color}">{html.escape(text)}</span>')
+        else:
+            self.log_view.append(html.escape(text))
         doc = self.log_view.document()
         while doc.blockCount() > self.max_log_lines:
             cursor = self.log_view.textCursor()
@@ -327,3 +356,9 @@ class ControlPage(QWidget):
             cursor.select(cursor.LineUnderCursor)
             cursor.removeSelectedText()
             cursor.deleteChar()
+
+    def _save_log(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save Log", "cnc_log.txt", "Text Files (*.txt)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.log_view.toPlainText())
