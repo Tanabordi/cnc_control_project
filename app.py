@@ -39,6 +39,7 @@ class App(QWidget):
         self._streaming_now = False
         self._alarm_active = False
         self._last_auto_x_time = 0.0  # cooldown: prevent $X spam
+        self._home_state = ""  # "after_H" | "after_HZ"
 
         # --- Top bar ---
         top = QHBoxLayout()
@@ -241,8 +242,6 @@ class App(QWidget):
         self.control_page.append_log(msg)
         self.run_page.append_log(msg)
         self.settings_page.append_log(msg)
-<<<<<<< Updated upstream
-=======
         if self._home_state and msg.strip().lower() == "ok":
             if self._home_state == "after_H":
                 self._home_state = "after_HZ"
@@ -251,7 +250,6 @@ class App(QWidget):
             elif self._home_state == "after_HZ":
                 self._home_state = ""
                 self.on_log("Homing done.")
->>>>>>> Stashed changes
 
     # -------- RunPage jog/move --------
     def run_jog(self, axis: str, delta: float):
@@ -350,7 +348,7 @@ class App(QWidget):
         p = self.points[row]
         cp.wp_feed.setValue(int(p.feed_to_next))
         cp.wp_laser_time.setValue(float(p.laser_time_s))
-        cp.wp_z.setValue(float(p.z))
+        cp.wp_z_safe.setValue(float(p.z_safe))
         cp.tx.setValue(float(p.x))
         cp.ty.setValue(float(p.y))
         cp.tz.setValue(float(p.z))
@@ -380,19 +378,20 @@ class App(QWidget):
             self.on_log("No position received yet.")
             return
         x, y, z = wpos
-        cp.wp_z.setValue(z)
         if not self.within_limits(x, y, z):
             self.on_log(f"Soft limit blocked. Current: X{x:.3f} Y{y:.3f} Z{z:.3f}")
             return
         f = int(cp.wp_feed.value())
         t = float(cp.wp_laser_time.value())
+        zs = float(cp.wp_z_safe.value())
         p = self.points[row]
         p.x, p.y, p.z = float(x), float(y), float(z)
         p.feed_to_next = int(f)
         p.laser_time_s = float(t)
+        p.z_safe = zs
         self._refresh_table_from_points()
         cp.wp_table.selectRow(row)
-        self.on_log(f"Updated waypoint #{row+1} -> X{x:.3f} Y{y:.3f} Z{z:.3f} F{f} T{t:.2f}")
+        self.on_log(f"Updated waypoint #{row+1} -> X{x:.3f} Y{y:.3f} Z{z:.3f} Zsafe{zs:.3f} F{f} T{t:.2f}")
 
     def _refresh_table_from_points(self):
         from PySide6.QtWidgets import QTableWidgetItem
@@ -404,8 +403,9 @@ class App(QWidget):
             cp.wp_table.setItem(r, 0, QTableWidgetItem(str(i)))
             cp.wp_table.setItem(r, 1, QTableWidgetItem(f"X{p.x:.3f} Y{p.y:.3f}"))
             cp.wp_table.setItem(r, 2, QTableWidgetItem(f"{p.z:.3f}"))
-            cp.wp_table.setItem(r, 3, QTableWidgetItem(str(int(p.feed_to_next))))
-            cp.wp_table.setItem(r, 4, QTableWidgetItem(f"{float(p.laser_time_s):.2f}"))
+            cp.wp_table.setItem(r, 3, QTableWidgetItem(f"{p.z_safe:.3f}"))
+            cp.wp_table.setItem(r, 4, QTableWidgetItem(str(int(p.feed_to_next))))
+            cp.wp_table.setItem(r, 5, QTableWidgetItem(f"{float(p.laser_time_s):.2f}"))
 
         cp.preview3d_btn.setEnabled(len(self.points) >= 2 and self._connected)
         cp.export_gcode_btn.setEnabled(len(self.points) >= 1 and self._connected)
@@ -421,11 +421,11 @@ class App(QWidget):
             self.on_log("No position received yet.")
             return
         x, y, z = wpos
-        cp.wp_z.setValue(z)
         f = int(cp.wp_feed.value())
         t = float(cp.wp_laser_time.value())
+        zs = float(cp.wp_z_safe.value())
         idx = len(self.points) + 1
-        self.points.append(Point(name=f"P{idx}", x=x, y=y, z=z, feed_to_next=f, laser_time_s=t))
+        self.points.append(Point(name=f"P{idx}", x=x, y=y, z=z, feed_to_next=f, laser_time_s=t, z_safe=zs))
         self._refresh_table_from_points()
 
     def delete_selected_point(self):
@@ -525,18 +525,16 @@ class App(QWidget):
         if not path:
             return
 
-        import math
-        safe_z = clamp(self.settings.safe_z, self.settings.zmin, self.settings.zmax)
-        lines = ["G90", "G21", "G54", f"G0 Z{safe_z:.3f}"]
-        prev = None
+        lines = ["G90", "G21", "G54"]
         for p in self.points:
-            if p.laser_time_s > 0 and prev is not None:
-                dist = math.sqrt((p.x - prev.x)**2 + (p.y - prev.y)**2 + (p.z - prev.z)**2)
-                f = max(1, round(dist / p.laser_time_s * 60))
-            else:
-                f = int(p.feed_to_next)
-            lines += [f"; {p.name}", f"G1 X{p.x:.3f} Y{p.y:.3f} Z{p.z:.3f} F{f}"]
-            prev = p
+            f = int(p.feed_to_next)
+            lines += [
+                f"; {p.name}",
+                f"G0 X{p.x:.3f} Y{p.y:.3f} Z{p.z_safe:.3f}",
+                f"G1 Z{p.z:.3f} F{f}",
+                f"G4 P{p.laser_time_s:.3f}",
+                f"G0 Z{p.z_safe:.3f}",
+            ]
         Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.on_log(f"Exported: {path}")
 
@@ -553,6 +551,7 @@ class App(QWidget):
     def do_home(self):
         if not self._connected:
             return
+        self._home_state = "after_H"
         self.worker.send_line("$H")
         self.on_log("Homing started...")
 
