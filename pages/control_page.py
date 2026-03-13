@@ -64,6 +64,13 @@ class ControlPage(QWidget):
         self.wp_laser_time.setDecimals(2)
         self.wp_laser_time.setValue(0.50)
         teach.addWidget(self.wp_laser_time)
+
+        teach.addWidget(QLabel("Z depth:"))
+        self.wp_z = QDoubleSpinBox()
+        self.wp_z.setRange(-99999.0, 99999.0)
+        self.wp_z.setDecimals(3)
+        self.wp_z.setValue(0.0)
+        teach.addWidget(self.wp_z)
         teach.addStretch(1)
         L.addLayout(teach)
 
@@ -86,8 +93,8 @@ class ControlPage(QWidget):
         L.addLayout(btn_bar)
 
         self.wp_table = WaypointTable(self)
-        self.wp_table.setColumnCount(4)
-        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y,Z)", "Speed(F)", "Time (s)"])
+        self.wp_table.setColumnCount(5)
+        self.wp_table.setHorizontalHeaderLabels(["Number", "Position (X,Y)", "Z depth", "Speed(F)", "Time (s)"])
         self.wp_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.wp_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.wp_table.setSelectionMode(QTableWidget.SingleSelection)

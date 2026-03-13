@@ -241,6 +241,17 @@ class App(QWidget):
         self.control_page.append_log(msg)
         self.run_page.append_log(msg)
         self.settings_page.append_log(msg)
+<<<<<<< Updated upstream
+=======
+        if self._home_state and msg.strip().lower() == "ok":
+            if self._home_state == "after_H":
+                self._home_state = "after_HZ"
+                self.worker.send_line("$HZ")
+                self.on_log("Homing Z...")
+            elif self._home_state == "after_HZ":
+                self._home_state = ""
+                self.on_log("Homing done.")
+>>>>>>> Stashed changes
 
     # -------- RunPage jog/move --------
     def run_jog(self, axis: str, delta: float):
@@ -339,6 +350,7 @@ class App(QWidget):
         p = self.points[row]
         cp.wp_feed.setValue(int(p.feed_to_next))
         cp.wp_laser_time.setValue(float(p.laser_time_s))
+        cp.wp_z.setValue(float(p.z))
         cp.tx.setValue(float(p.x))
         cp.ty.setValue(float(p.y))
         cp.tz.setValue(float(p.z))
@@ -368,6 +380,7 @@ class App(QWidget):
             self.on_log("No position received yet.")
             return
         x, y, z = wpos
+        cp.wp_z.setValue(z)
         if not self.within_limits(x, y, z):
             self.on_log(f"Soft limit blocked. Current: X{x:.3f} Y{y:.3f} Z{z:.3f}")
             return
@@ -389,9 +402,10 @@ class App(QWidget):
             r = cp.wp_table.rowCount()
             cp.wp_table.insertRow(r)
             cp.wp_table.setItem(r, 0, QTableWidgetItem(str(i)))
-            cp.wp_table.setItem(r, 1, QTableWidgetItem(f"X{p.x:.3f} Y{p.y:.3f} Z{p.z:.3f}"))
-            cp.wp_table.setItem(r, 2, QTableWidgetItem(str(int(p.feed_to_next))))
-            cp.wp_table.setItem(r, 3, QTableWidgetItem(f"{float(p.laser_time_s):.2f}"))
+            cp.wp_table.setItem(r, 1, QTableWidgetItem(f"X{p.x:.3f} Y{p.y:.3f}"))
+            cp.wp_table.setItem(r, 2, QTableWidgetItem(f"{p.z:.3f}"))
+            cp.wp_table.setItem(r, 3, QTableWidgetItem(str(int(p.feed_to_next))))
+            cp.wp_table.setItem(r, 4, QTableWidgetItem(f"{float(p.laser_time_s):.2f}"))
 
         cp.preview3d_btn.setEnabled(len(self.points) >= 2 and self._connected)
         cp.export_gcode_btn.setEnabled(len(self.points) >= 1 and self._connected)
@@ -407,6 +421,7 @@ class App(QWidget):
             self.on_log("No position received yet.")
             return
         x, y, z = wpos
+        cp.wp_z.setValue(z)
         f = int(cp.wp_feed.value())
         t = float(cp.wp_laser_time.value())
         idx = len(self.points) + 1
