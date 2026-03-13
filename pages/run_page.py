@@ -1,10 +1,9 @@
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QGroupBox, QTextEdit, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QSplitter, QComboBox, QSpinBox,
-    QDoubleSpinBox, QGridLayout, QSizePolicy
+    QCheckBox, QSplitter
 )
 
 from gcode import FigureCanvas, Figure, parse_gcode_to_segments
@@ -44,6 +43,7 @@ class RunPage(QWidget):
             self.canvas = FigureCanvas(self.fig)
             self.ax = self.fig.add_subplot(111)
             cv.addWidget(self.canvas, 1)
+        self._tool_dot = None
         self.info_lbl = QLabel("X: -    Y: -    Z: -")
         self.info_lbl.setStyleSheet("font-family: monospace; font-size: 10px; padding: 2px;")
         cv.addWidget(self.info_lbl)
@@ -112,82 +112,51 @@ class RunPage(QWidget):
         sg.addLayout(sstat)
         R.addWidget(state_box)
 
-        # Jog section
-        jog_box = QGroupBox("Jog")
-        jog_root = QVBoxLayout(jog_box)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
+        # Action buttons
+        self.home_btn     = _btn("Home ($H)")
+        self.unlock_btn   = _btn("Unlock ($X)")
+        self.zero_btn     = _btn("Set Work Zero (G54)")
+        self.go_zero_btn  = _btn("Go Machine Zero (G53)")
+        self.reset_btn2   = _btn("Reset (Ctrl+X)")
+        self.auto_unlock_cb = QCheckBox("Auto $X after Reset")
+        self.estop_btn    = _btn("E-STOP")
 
-        self.btn_up    = _btn("▲", min_h=40)
-        self.btn_down  = _btn("▼", min_h=40)
-        self.btn_left  = _btn("◀", min_h=40)
-        self.btn_right = _btn("▶", min_h=40)
-        self.btn_stop  = _btn("⦸", min_h=40)
-        self.btn_z_up  = _btn("▲", min_h=40)
-        self.btn_z_down= _btn("▼", min_h=40)
+        act1 = QHBoxLayout()
+        act1.addWidget(self.home_btn, 1)
+        act1.addWidget(self.unlock_btn, 1)
+        act2 = QHBoxLayout()
+        act2.addWidget(self.zero_btn, 1)
+        act2.addWidget(self.go_zero_btn, 1)
+        act3 = QHBoxLayout()
+        act3.addWidget(self.reset_btn2, 2)
+        act3.addWidget(self.auto_unlock_cb, 2)
+        act3.addWidget(self.estop_btn, 1)
+        R.addLayout(act1)
+        R.addLayout(act2)
+        R.addLayout(act3)
 
-        self.jog_buttons = [self.btn_up, self.btn_down, self.btn_left,
-                            self.btn_right, self.btn_stop, self.btn_z_up, self.btn_z_down]
-        for b in self.jog_buttons:
-            b.setMinimumSize(QSize(40, 40))
-            b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-        grid.addWidget(self.btn_up,    0, 1)
-        grid.addWidget(self.btn_left,  1, 0)
-        grid.addWidget(self.btn_stop,  1, 1)
-        grid.addWidget(self.btn_right, 1, 2)
-        grid.addWidget(self.btn_down,  2, 1)
-        grid.addWidget(self.btn_z_up,  0, 4)
-        grid.addWidget(self.btn_z_down,2, 4)
-        jog_root.addLayout(grid)
-
-        step_row = QHBoxLayout()
-        step_row.addWidget(QLabel("Step:"))
-        self.step_mode = QComboBox()
-        self.step_mode.addItems(["0.1", "1", "10", "Custom"])
-        self.step_mm = QDoubleSpinBox()
-        self.step_mm.setRange(0.01, 1000)
-        self.step_mm.setValue(1.0)
-        self.step_mm.setEnabled(False)
-        step_row.addWidget(self.step_mode, 1)
-        step_row.addWidget(self.step_mm, 1)
-        jog_root.addLayout(step_row)
-
-        feed_row = QHBoxLayout()
-        feed_row.addWidget(QLabel("Feed:"))
-        self.feed = QSpinBox()
-        self.feed.setRange(1, 20000)
-        self.feed.setValue(2000)
-        feed_row.addWidget(self.feed, 1)
-        jog_root.addLayout(feed_row)
-
-        self.keyboard_cb = QCheckBox("Keyboard control")
-        self.keyboard_cb.setChecked(False)
-        jog_root.addWidget(self.keyboard_cb)
-        R.addWidget(jog_box)
-
-        # Move to Target
-        move_group = QGroupBox("Move to Target (Absolute, mm)")
-        from PySide6.QtWidgets import QFormLayout
-        mv = QFormLayout(move_group)
-        self.tx = QDoubleSpinBox(); self.tx.setRange(-99999, 99999); self.tx.setValue(0)
-        self.ty = QDoubleSpinBox(); self.ty.setRange(-99999, 99999); self.ty.setValue(0)
-        self.tz = QDoubleSpinBox(); self.tz.setRange(-99999, 99999); self.tz.setValue(0)
-        self.move_btn = _btn("Move (G1)")
-        mv.addRow("X", self.tx); mv.addRow("Y", self.ty)
-        mv.addRow("Z", self.tz); mv.addRow(self.move_btn)
-        R.addWidget(move_group)
-
-        # Console (log output)
-        console_box = QGroupBox("Log")
-        cns = QVBoxLayout(console_box)
-        cns.setContentsMargins(8, 8, 8, 8)
+        # Log
+        log_box = QGroupBox("Log")
+        log_v = QVBoxLayout(log_box)
+        log_v.setContentsMargins(8, 8, 8, 8)
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setLineWrapMode(QTextEdit.NoWrap)
-        cns.addWidget(self.log_view, 1)
-        R.addWidget(console_box, 1)
+        log_v.addWidget(self.log_view, 1)
+        R.addWidget(log_box, 1)
+
+        # Console input
+        console_box = QGroupBox("Console")
+        cns_v = QVBoxLayout(console_box)
+        cns_v.setContentsMargins(8, 8, 8, 8)
+        console_row = QHBoxLayout()
+        self.console_input = QLineEdit()
+        self.console_input.setPlaceholderText("Send GRBL command (e.g. $I, ?, $$, G28 ...)")
+        self.console_send_btn = _btn("Send", enabled=False)
+        console_row.addWidget(self.console_input, 1)
+        console_row.addWidget(self.console_send_btn)
+        cns_v.addLayout(console_row)
+        R.addWidget(console_box)
 
         splitter.addWidget(left)
         splitter.addWidget(right)
@@ -228,35 +197,35 @@ class RunPage(QWidget):
         self.autoscroll_cb.toggled.connect(
             lambda v: setattr(self, "_autoscroll", v)
         )
-        self.step_mode.currentTextChanged.connect(self._on_step_mode)
-        self.btn_left.clicked.connect(lambda: self.app.run_jog("X", -self.get_step()))
-        self.btn_right.clicked.connect(lambda: self.app.run_jog("X", +self.get_step()))
-        self.btn_up.clicked.connect(lambda: self.app.run_jog("Y", +self.get_step()))
-        self.btn_down.clicked.connect(lambda: self.app.run_jog("Y", -self.get_step()))
-        self.btn_z_up.clicked.connect(lambda: self.app.run_jog("Z", +self.get_step()))
-        self.btn_z_down.clicked.connect(lambda: self.app.run_jog("Z", -self.get_step()))
-        self.btn_stop.clicked.connect(self.app.worker.jog_cancel)
-        self.move_btn.clicked.connect(self.app.run_move_to_target)
+        self.home_btn.clicked.connect(self.app.do_home)
+        self.unlock_btn.clicked.connect(lambda: self.app.worker.send_line("$X"))
+        self.zero_btn.clicked.connect(self.app.set_work_zero)
+        self.go_zero_btn.clicked.connect(self.app.go_machine_zero)
+        self.reset_btn2.clicked.connect(self.app.do_reset)
+        self.estop_btn.clicked.connect(self.app.do_estop)
+        self.console_input.returnPressed.connect(self.app.send_run_console_command)
+        self.console_send_btn.clicked.connect(self.app.send_run_console_command)
 
         self.set_connected(False)
         self.set_stream_state("idle")
+
+    # ---- Tool position ----
+    def update_tool_position(self, x: float, y: float):
+        if self._tool_dot is None or self.canvas is None:
+            return
+        self._tool_dot.set_offsets([[x, y]])
+        self.canvas.draw_idle()
 
     # ---- Log ----
     def append_log(self, line: str):
         self.log_view.append(f"[{_ts()}] {line}")
 
-    # ---- Step/Jog helpers ----
-    def get_step(self) -> float:
-        mode = self.step_mode.currentText()
-        return float(mode) if mode in ("0.1", "1", "10") else float(self.step_mm.value())
-
-    def _on_step_mode(self, txt: str):
-        self.step_mm.setEnabled(txt == "Custom")
-
     # ---- Connection state ----
     def set_connected(self, ok: bool):
         _set_enabled([self.run_btn, self.reset_btn, self.stop_btn], ok)
-        _set_enabled(self.jog_buttons + [self.move_btn], ok)
+        _set_enabled([self.home_btn, self.unlock_btn, self.zero_btn,
+                      self.go_zero_btn, self.reset_btn2, self.estop_btn,
+                      self.console_send_btn], ok)
         if not ok:
             self.pause_btn.setEnabled(False)
             self.resume_btn.setEnabled(False)
@@ -264,8 +233,6 @@ class RunPage(QWidget):
 
     # ---- Stream state ----
     def set_stream_state(self, st: str):
-        locked = st in ("running", "paused")
-        _set_enabled(self.jog_buttons + [self.move_btn], self.app._connected and not locked)
         if st == "running":
             self.pause_btn.setEnabled(True)
             self.resume_btn.setEnabled(False)
@@ -338,6 +305,7 @@ class RunPage(QWidget):
         ex, ey, _ = end_xyz
         self.ax.scatter([sx], [sy], marker="s", color="green", zorder=5, s=30)
         self.ax.scatter([ex], [ey], marker="s", color="red", zorder=5, s=30)
+        self._tool_dot = self.ax.scatter([sx], [sy], marker="o", color="#00aaff", zorder=10, s=80)
         self.ax.set_aspect("equal", adjustable="box")
         self.ax.set_xlabel("X (mm)")
         self.ax.set_ylabel("Y (mm)")

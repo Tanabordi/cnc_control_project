@@ -113,11 +113,6 @@ class App(QWidget):
             if not page.keyboard_cb.isChecked():
                 return super().keyPressEvent(event)
             step = self.get_step()
-        elif cur == 1:
-            page, jog_fn = self.run_page, self.run_jog
-            if not page.keyboard_cb.isChecked():
-                return super().keyPressEvent(event)
-            step = page.get_step()
         else:
             return super().keyPressEvent(event)
 
@@ -219,6 +214,8 @@ class App(QWidget):
             page.mpos_z.setText(f"{mz:.3f}")
             page.state_lbl.setText(state)
 
+        self.run_page.update_tool_position(wx, wy)
+
         if state.lower().startswith("alarm") and not self._alarm_active:
             self.on_alarm(state)
         elif self._alarm_active and not state.lower().startswith("alarm"):
@@ -251,33 +248,6 @@ class App(QWidget):
                 self._home_state = ""
                 self.on_log("Homing done.")
 
-    # -------- RunPage jog/move --------
-    def run_jog(self, axis: str, delta: float):
-        wpos = self.worker.last_wpos()
-        if not wpos:
-            self.on_log("No position received yet.")
-            return
-        x, y, z = wpos
-        nx, ny, nz = x, y, z
-        if axis == "X":   nx = x + delta
-        elif axis == "Y": ny = y + delta
-        elif axis == "Z": nz = z + delta
-        if not self.within_limits(nx, ny, nz):
-            self.on_log(f"Soft limit blocked. Target: X{nx:.3f} Y{ny:.3f} Z{nz:.3f}")
-            return
-        f = self.run_page.feed.value()
-        self.worker.send_line(f"$J=G91 {axis}{delta:.3f} F{f}")
-
-    def run_move_to_target(self):
-        rp = self.run_page
-        x, y, z = rp.tx.value(), rp.ty.value(), rp.tz.value()
-        if not self.within_limits(x, y, z):
-            self.on_log(f"Soft limit blocked. Target: X{x:.3f} Y{y:.3f} Z{z:.3f}")
-            return
-        f = rp.feed.value()
-        self.worker.send_line("G90")
-        self.worker.send_line(f"G1 X{x:.3f} Y{y:.3f} Z{z:.3f} F{f}")
-
     # -------- Console --------
     def send_console_command(self):
         cp = self.control_page
@@ -286,6 +256,14 @@ class App(QWidget):
             return
         self.worker.send_line(cmd)
         cp.console_input.clear()
+
+    def send_run_console_command(self):
+        rp = self.run_page
+        cmd = rp.console_input.text().strip()
+        if not cmd:
+            return
+        self.worker.send_line(cmd)
+        rp.console_input.clear()
 
     # -------- Soft limits --------
     def soft_limits(self):
