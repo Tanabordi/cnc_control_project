@@ -15,3 +15,4 @@ class Point:
     feed_to_next: int = 1000
     laser_time_s: float = 0.0
     z_safe: float = -2.0
+    power: int = 255
