@@ -186,14 +186,22 @@ class GrblWorker(QThread):
         self._mutex.lock()
         try:
             if not self._stream_queue:
-                self._stop_stream_internal("done")
-                self.log.emit("Streaming done")
-                return
-            idx, ln = self._stream_queue.popleft()
-            self._awaiting_ok = True
-            self._current_stream_idx = idx
+                self._streaming = False
+                self._stream_paused = False
+                self._awaiting_ok = False
+                should_finish = True
+            else:
+                idx, ln = self._stream_queue.popleft()
+                self._awaiting_ok = True
+                self._current_stream_idx = idx
+                should_finish = False
         finally:
             self._mutex.unlock()
+
+        if should_finish:
+            self.stream_state.emit("done")
+            self.log.emit("Streaming done")
+            return
 
         self.line_sent.emit(idx, ln)
         self.send_line(ln)

@@ -62,6 +62,8 @@ class PcbCanvas(QWidget):
         self.side = side
         self.p1_set = False
         self.p2_set = False
+        self.p1_csv_pos = None   # (x, y) in CSV space — selected reference component
+        self.p2_csv_pos = None   # (x, y) in CSV space — selected reference component
         self.setMinimumSize(300, 300)
         self._margin = 44
         self._recompute_bounds()
@@ -123,33 +125,27 @@ class PcbCanvas(QWidget):
             painter.setPen(QColor(210, 210, 160))
             painter.drawText(int(cx + 6), int(cy + 4), comp.ref)
 
-        # Calibration corner markers
-        if self.side == "bottom":
-            p1_csv = (self.data_xmax, self.data_ymax)
-            p2_csv = (self.data_xmin, self.data_ymin)
-        else:
-            p1_csv = (self.data_xmin, self.data_ymax)
-            p2_csv = (self.data_xmax, self.data_ymin)
+        # P1 reference component marker
+        if self.p1_csv_pos:
+            p1x, p1y = self._to_canvas(*self.p1_csv_pos)
+            c1 = QColor(0, 170, 255) if self.p1_set else QColor(70, 110, 150)
+            painter.setPen(QPen(c1, 2))
+            painter.setBrush(QBrush(c1))
+            painter.drawEllipse(int(p1x - 9), int(p1y - 9), 18, 18)
+            painter.setPen(Qt.white)
+            painter.setFont(QFont("Arial", 8, QFont.Bold))
+            painter.drawText(int(p1x - 5), int(p1y + 4), "P1")
 
-        p1x, p1y = self._to_canvas(*p1_csv)
-        p2x, p2y = self._to_canvas(*p2_csv)
-
-        # P1 — top-left (blue when set, grey when not)
-        c1 = QColor(0, 170, 255) if self.p1_set else QColor(70, 110, 150)
-        painter.setPen(QPen(c1, 2))
-        painter.setBrush(QBrush(c1))
-        painter.drawEllipse(int(p1x - 8), int(p1y - 8), 16, 16)
-        painter.setPen(Qt.white)
-        painter.setFont(QFont("Arial", 8, QFont.Bold))
-        painter.drawText(int(p1x - 5), int(p1y + 4), "P1")
-
-        # P2 — bottom-right (orange when set, grey when not)
-        c2 = QColor(255, 120, 0) if self.p2_set else QColor(150, 100, 60)
-        painter.setPen(QPen(c2, 2))
-        painter.setBrush(QBrush(c2))
-        painter.drawEllipse(int(p2x - 8), int(p2y - 8), 16, 16)
-        painter.setPen(Qt.white)
-        painter.drawText(int(p2x - 5), int(p2y + 4), "P2")
+        # P2 reference component marker
+        if self.p2_csv_pos:
+            p2x, p2y = self._to_canvas(*self.p2_csv_pos)
+            c2 = QColor(255, 120, 0) if self.p2_set else QColor(150, 100, 60)
+            painter.setPen(QPen(c2, 2))
+            painter.setBrush(QBrush(c2))
+            painter.drawEllipse(int(p2x - 9), int(p2y - 9), 18, 18)
+            painter.setPen(Qt.white)
+            painter.setFont(QFont("Arial", 8, QFont.Bold))
+            painter.drawText(int(p2x - 5), int(p2y + 4), "P2")
 
         # Dimension labels
         painter.setPen(QColor(160, 200, 160))
@@ -165,24 +161,21 @@ class PcbCanvas(QWidget):
 class PcbCalibDialog(QDialog):
     """
     Step-by-step PCB calibration dialog.
-    User jogs to 2 corner points to define the board origin and orientation.
+    User selects 2 reference components, jogs to each on the real board,
+    and the affine transform is computed from those known positions.
     """
 
     def __init__(self, components, has_side: bool, worker, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Import PCB CSV — Calibration")
         self.setModal(True)
-        self.resize(1050, 680)
+        self.resize(1050, 720)
 
         self.components = components
         self.worker = worker
         self.p1_machine = None   # (x, y) or None
         self.p2_machine = None   # (x, y) or None
-
-        xs = [c.pos_x for c in components]
-        ys = [c.pos_y for c in components]
-        self.csv_xmin, self.csv_xmax = min(xs), max(xs)
-        self.csv_ymin, self.csv_ymax = min(ys), max(ys)
+        self.z_surface = None    # float or None
 
         # Determine initial side from CSV
         if has_side:
@@ -192,6 +185,10 @@ class PcbCalibDialog(QDialog):
             self._side = "top"
 
         self._build_ui(has_side)
+
+        # Initialize canvas markers from default combo selections
+        self._on_p1_comp_changed(0)
+        self._on_p2_comp_changed(self.p2_comp_combo.count() - 1)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh_pos)
@@ -208,8 +205,10 @@ class PcbCalibDialog(QDialog):
         lv = QVBoxLayout(left_w)
         lv.setContentsMargins(0, 0, 0, 0)
 
-        board_w = round(self.csv_xmax - self.csv_xmin, 2)
-        board_h = round(self.csv_ymax - self.csv_ymin, 2)
+        xs = [c.pos_x for c in self.components]
+        ys = [c.pos_y for c in self.components]
+        board_w = round(max(xs) - min(xs), 2)
+        board_h = round(max(ys) - min(ys), 2)
         info_lbl = QLabel(
             f"PCB Preview  —  {len(self.components)} components  |  "
             f"Board: {board_w} × {board_h} mm"
@@ -221,17 +220,17 @@ class PcbCalibDialog(QDialog):
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lv.addWidget(self.canvas, 1)
 
-        # Corner legend
+        # Legend
         legend = QHBoxLayout()
         dot_p1 = QLabel("●")
         dot_p1.setStyleSheet("color: #00aaff; font-size: 14px;")
         legend.addWidget(dot_p1)
-        legend.addWidget(QLabel("P1 = TOP-LEFT ของบอร์ด"))
+        legend.addWidget(QLabel("P1 = component อ้างอิงจุดที่ 1"))
         legend.addSpacing(20)
         dot_p2 = QLabel("●")
         dot_p2.setStyleSheet("color: #ff7700; font-size: 14px;")
         legend.addWidget(dot_p2)
-        legend.addWidget(QLabel("P2 = BOTTOM-RIGHT ของบอร์ด"))
+        legend.addWidget(QLabel("P2 = component อ้างอิงจุดที่ 2"))
         legend.addStretch(1)
         lv.addLayout(legend)
 
@@ -239,7 +238,7 @@ class PcbCalibDialog(QDialog):
 
         # ===== Right: controls (fixed width) =====
         right_w = QWidget()
-        right_w.setFixedWidth(350)
+        right_w.setFixedWidth(370)
         rv = QVBoxLayout(right_w)
         rv.setSpacing(8)
 
@@ -303,7 +302,6 @@ class PcbCalibDialog(QDialog):
         self.jog_step_custom.setRange(0.001, 9999.0)
         self.jog_step_custom.setDecimals(3)
         self.jog_step_custom.setValue(5.0)
-        self.jog_step_custom.setSuffix("")
         self.jog_step_custom.setVisible(False)
         step_row.addWidget(self.jog_step_custom)
         step_row.addWidget(QLabel("Feed:"))
@@ -326,25 +324,52 @@ class PcbCalibDialog(QDialog):
         cal_box = QGroupBox("Calibration Points")
         cv = QVBoxLayout(cal_box)
 
-        cv.addWidget(QLabel("Step 1 — Jog หัวไปที่มุม TOP-LEFT ของบอร์ดจริง:"))
+        # Step 1
+        cv.addWidget(QLabel("Step 1 — เลือก component อ้างอิง P1:"))
+        self.p1_comp_combo = QComboBox()
+        for c in self.components:
+            self.p1_comp_combo.addItem(f"{c.ref}  ({c.pos_x:.2f}, {c.pos_y:.2f})", c)
+        self.p1_comp_combo.currentIndexChanged.connect(self._on_p1_comp_changed)
+        cv.addWidget(self.p1_comp_combo)
+        cv.addWidget(QLabel("  Jog หัวไปแตะ component นั้น แล้วกด Set P1:"))
         self.p1_lbl = QLabel("  ยังไม่ได้กำหนด")
         self.p1_lbl.setStyleSheet("color: #888;")
         cv.addWidget(self.p1_lbl)
-        self.set_p1_btn = QPushButton("📍  Set P1  (Top-Left)")
+        self.set_p1_btn = QPushButton("📍  Set P1")
         self.set_p1_btn.setMinimumHeight(36)
         self.set_p1_btn.clicked.connect(self._set_p1)
         cv.addWidget(self.set_p1_btn)
 
         cv.addSpacing(6)
 
-        cv.addWidget(QLabel("Step 2 — Jog หัวไปที่มุม BOTTOM-RIGHT ของบอร์ดจริง:"))
+        # Step 2
+        cv.addWidget(QLabel("Step 2 — เลือก component อ้างอิง P2:"))
+        self.p2_comp_combo = QComboBox()
+        for c in self.components:
+            self.p2_comp_combo.addItem(f"{c.ref}  ({c.pos_x:.2f}, {c.pos_y:.2f})", c)
+        self.p2_comp_combo.setCurrentIndex(len(self.components) - 1)
+        self.p2_comp_combo.currentIndexChanged.connect(self._on_p2_comp_changed)
+        cv.addWidget(self.p2_comp_combo)
+        cv.addWidget(QLabel("  Jog หัวไปแตะ component นั้น แล้วกด Set P2:"))
         self.p2_lbl = QLabel("  ยังไม่ได้กำหนด")
         self.p2_lbl.setStyleSheet("color: #888;")
         cv.addWidget(self.p2_lbl)
-        self.set_p2_btn = QPushButton("📍  Set P2  (Bottom-Right)")
+        self.set_p2_btn = QPushButton("📍  Set P2")
         self.set_p2_btn.setMinimumHeight(36)
         self.set_p2_btn.clicked.connect(self._set_p2)
         cv.addWidget(self.set_p2_btn)
+
+        cv.addSpacing(6)
+
+        # Step 3
+        cv.addWidget(QLabel("Step 3 — Jog Z ลงแตะผิวชิ้นงาน แล้วกด Set Z:"))
+        self.z_lbl = QLabel("  ยังไม่ได้กำหนด")
+        self.z_lbl.setStyleSheet("color: #888;")
+        cv.addWidget(self.z_lbl)
+        self.set_z_btn = QPushButton("📍  Set Z  (Surface)")
+        self.set_z_btn.setMinimumHeight(36)
+        self.set_z_btn.clicked.connect(self._set_z_surface)
+        cv.addWidget(self.set_z_btn)
 
         rv.addWidget(cal_box)
 
@@ -375,6 +400,18 @@ class PcbCalibDialog(QDialog):
         self.canvas.side = text
         self.canvas.update()
 
+    def _on_p1_comp_changed(self, idx: int):
+        comp = self.p1_comp_combo.itemData(idx)
+        if comp:
+            self.canvas.p1_csv_pos = (comp.pos_x, comp.pos_y)
+            self.canvas.update()
+
+    def _on_p2_comp_changed(self, idx: int):
+        comp = self.p2_comp_combo.itemData(idx)
+        if comp:
+            self.canvas.p2_csv_pos = (comp.pos_x, comp.pos_y)
+            self.canvas.update()
+
     def _refresh_pos(self):
         wpos = self.worker.last_wpos()
         if wpos:
@@ -400,7 +437,8 @@ class PcbCalibDialog(QDialog):
             return
         x, y, _ = wpos
         self.p1_machine = (x, y)
-        self.p1_lbl.setText(f"  ✔  X{x:.3f}   Y{y:.3f}")
+        comp = self.p1_comp_combo.currentData()
+        self.p1_lbl.setText(f"  ✔  {comp.ref} → X{x:.3f}  Y{y:.3f}")
         self.p1_lbl.setStyleSheet("color: #00aaff; font-weight: bold;")
         self.canvas.p1_set = True
         self.canvas.update()
@@ -413,27 +451,40 @@ class PcbCalibDialog(QDialog):
             return
         x, y, _ = wpos
         self.p2_machine = (x, y)
-        self.p2_lbl.setText(f"  ✔  X{x:.3f}   Y{y:.3f}")
+        comp = self.p2_comp_combo.currentData()
+        self.p2_lbl.setText(f"  ✔  {comp.ref} → X{x:.3f}  Y{y:.3f}")
         self.p2_lbl.setStyleSheet("color: #ff8800; font-weight: bold;")
         self.canvas.p2_set = True
         self.canvas.update()
         self._check_ready()
 
-    def _check_ready(self):
-        if not (self.p1_machine and self.p2_machine):
+    def _set_z_surface(self):
+        wpos = self.worker.last_wpos()
+        if not wpos:
+            QMessageBox.warning(self, "Error", "ยังไม่ได้รับ position จากเครื่อง\nตรวจสอบการเชื่อมต่อ")
             return
+        _, _, z = wpos
+        self.z_surface = z
+        self.z_lbl.setText(f"  ✔  Z{z:.3f}")
+        self.z_lbl.setStyleSheet("color: #88ff88; font-weight: bold;")
+        self._check_ready()
+
+    def _check_ready(self):
+        if not (self.p1_machine and self.p2_machine and self.z_surface is not None):
+            return
+        p1_comp = self.p1_comp_combo.currentData()
+        p2_comp = self.p2_comp_combo.currentData()
+        dcx = p2_comp.pos_x - p1_comp.pos_x
+        dcy = p2_comp.pos_y - p1_comp.pos_y
+        csv_dist = math.sqrt(dcx * dcx + dcy * dcy)
         dx = self.p2_machine[0] - self.p1_machine[0]
         dy = self.p2_machine[1] - self.p1_machine[1]
         mach_dist = math.sqrt(dx * dx + dy * dy)
-        board_diag = math.sqrt(
-            (self.csv_xmax - self.csv_xmin) ** 2 +
-            (self.csv_ymax - self.csv_ymin) ** 2
-        )
-        scale = mach_dist / board_diag if board_diag > 0 else 0.0
+        scale = mach_dist / csv_dist if csv_dist > 0 else 0.0
         self.scale_lbl.setText(
-            f"Machine distance P1→P2 : {mach_dist:.2f} mm\n"
-            f"Board diagonal (CSV)   : {board_diag:.2f} mm\n"
-            f"Scale factor           : {scale:.4f}x"
+            f"Machine distance P1→P2  : {mach_dist:.2f} mm\n"
+            f"Component distance (CSV): {csv_dist:.2f} mm\n"
+            f"Scale factor            : {scale:.4f}x"
         )
         self.confirm_btn.setEnabled(True)
 
@@ -441,29 +492,21 @@ class PcbCalibDialog(QDialog):
 
     def get_waypoints(self, default_feed: int = 1200, default_time: float = 0.5):
         """
-        Apply 2-point affine transform (rotation + uniform scale) to every
-        component centre and return a list of Point waypoints.
+        Apply 2-point affine transform (rotation + uniform scale) anchored to
+        two user-selected reference components and return a list of Point waypoints.
         """
         if not (self.p1_machine and self.p2_machine):
             return []
 
+        p1_comp = self.p1_comp_combo.currentData()
+        p2_comp = self.p2_comp_combo.currentData()
+
+        csv_p1x, csv_p1y = p1_comp.pos_x, p1_comp.pos_y
+        csv_p2x, csv_p2y = p2_comp.pos_x, p2_comp.pos_y
+
         mx1, my1 = self.p1_machine
         mx2, my2 = self.p2_machine
 
-        # CSV reference corners depend on side
-        # top  : physical P1 = top-left  → CSV (xmin, ymax)
-        #         physical P2 = bot-right → CSV (xmax, ymin)
-        # bottom (board flipped around Y-axis):
-        #         physical P1 = top-left  → CSV (xmax, ymax)
-        #         physical P2 = bot-right → CSV (xmin, ymin)
-        if self._side == "bottom":
-            csv_p1x, csv_p1y = self.csv_xmax, self.csv_ymax
-            csv_p2x, csv_p2y = self.csv_xmin, self.csv_ymin
-        else:
-            csv_p1x, csv_p1y = self.csv_xmin, self.csv_ymax
-            csv_p2x, csv_p2y = self.csv_xmax, self.csv_ymin
-
-        # Direction vectors
         dcx = csv_p2x - csv_p1x
         dcy = csv_p2y - csv_p1y
         dmx = mx2 - mx1
@@ -490,7 +533,7 @@ class PcbCalibDialog(QDialog):
                 name=comp.ref,
                 x=round(mx1 + rx, 3),
                 y=round(my1 + ry, 3),
-                z=0.0,
+                z=round(self.z_surface, 3),
                 feed_to_next=default_feed,
                 laser_time_s=default_time,
             ))
