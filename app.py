@@ -33,6 +33,7 @@ class App(QWidget):
 
         self.worker.alarm.connect(self.on_alarm)
         self.worker.grbl_reset.connect(self.on_grbl_reset)
+        self.worker.stream_progress.connect(self._on_stream_progress)
 
         self.points: list[Point] = []
         self._connected = False
@@ -234,6 +235,9 @@ class App(QWidget):
 
     def _on_line_error_at(self, idx: int, msg: str):
         self.run_page.update_cmd_row_error(idx, msg)
+
+    def _on_stream_progress(self, done: int, total: int):
+        self.run_page.update_progress(done, total)
 
     def on_log(self, msg: str):
         self.control_page.append_log(msg)

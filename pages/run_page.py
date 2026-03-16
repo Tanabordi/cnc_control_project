@@ -1,12 +1,14 @@
+import time
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QGroupBox, QTextEdit, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QSplitter
+    QCheckBox, QSplitter, QProgressBar
 )
 
-from gcode import FigureCanvas, Figure, parse_gcode_to_segments
+from gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
 from utils import _btn, _set_enabled, _read_text, _ts
 
 
@@ -16,6 +18,8 @@ class RunPage(QWidget):
         self.app = app_ref
         self._gcode_path = ""
         self._autoscroll = True
+        self._estimated_total_s = 0.0
+        self._stream_start_time = 0.0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -164,6 +168,22 @@ class RunPage(QWidget):
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter, 1)
 
+        # --- Progress row ---
+        prog_row = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(14)
+        self.progress_lbl = QLabel("—")
+        self.progress_lbl.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.eta_lbl = QLabel("")
+        self.eta_lbl.setStyleSheet("font-family: monospace; font-size: 11px; color: gray;")
+        prog_row.addWidget(self.progress_bar, 1)
+        prog_row.addWidget(self.progress_lbl)
+        prog_row.addWidget(self.eta_lbl)
+        root.addLayout(prog_row)
+
         # --- Bottom toolbar ---
         bot = QHBoxLayout()
         self.check_mode_cb = QCheckBox("Check mode")
@@ -231,9 +251,43 @@ class RunPage(QWidget):
             self.resume_btn.setEnabled(False)
         self.state_lbl.setText("Port opened" if ok else "Disconnected")
 
+    # ---- Progress ----
+    def set_estimated_time(self, seconds: float):
+        self._estimated_total_s = seconds
+
+    def update_progress(self, done: int, total: int):
+        self.progress_bar.setMaximum(max(total, 1))
+        self.progress_bar.setValue(done)
+        pct = int(done * 100 / total) if total > 0 else 0
+        self.progress_lbl.setText(f"{done} / {total}  ({pct}%)")
+
+        eta_str = ""
+        if done > 0 and self._stream_start_time > 0:
+            elapsed = time.time() - self._stream_start_time
+            remaining_s = elapsed * (total - done) / done
+            if remaining_s < 60:
+                eta_str = f"ETA: {int(remaining_s)}s"
+            else:
+                m, s = divmod(int(remaining_s), 60)
+                eta_str = f"ETA: {m}m {s}s"
+        elif self._estimated_total_s > 0 and total > 0:
+            eta_str = f"Est: {_fmt_duration(self._estimated_total_s)}"
+        self.eta_lbl.setText(eta_str)
+
+    def reset_progress(self):
+        self.progress_bar.setValue(0)
+        self.progress_bar.setMaximum(1)
+        self.progress_lbl.setText("—")
+        self.eta_lbl.setText(
+            f"Est: {_fmt_duration(self._estimated_total_s)}" if self._estimated_total_s > 0 else ""
+        )
+        self._stream_start_time = 0.0
+
     # ---- Stream state ----
     def set_stream_state(self, st: str):
         if st == "running":
+            if self._stream_start_time == 0.0:
+                self._stream_start_time = time.time()
             self.pause_btn.setEnabled(True)
             self.resume_btn.setEnabled(False)
             self.run_btn.setEnabled(False)
@@ -265,6 +319,13 @@ class RunPage(QWidget):
         self.app.on_log(f"Loaded G-code: {path}")
         self.draw_preview_from_file(path)
         self.populate_cmd_table(path)
+        try:
+            est_s = estimate_run_time(_read_text(path))
+            self.set_estimated_time(est_s)
+            self.reset_progress()
+            self.app.on_log(f"Estimated run time: {_fmt_duration(est_s)}")
+        except Exception:
+            pass
 
     # ---- Run ----
     def on_run_confirm(self):
@@ -349,6 +410,7 @@ class RunPage(QWidget):
             resp = self.cmd_table.item(r, 3)
             if resp:
                 resp.setText("")
+        self.reset_progress()
 
     def update_cmd_row_sent(self, idx: int):
         if idx < 0 or idx >= self.cmd_table.rowCount():
@@ -379,3 +441,14 @@ class RunPage(QWidget):
         if resp:
             resp.setText(msg)
         self.cmd_table.scrollToItem(self.cmd_table.item(idx, 0))
+
+
+def _fmt_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m {s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m:02d}m"
