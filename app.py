@@ -1,10 +1,13 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolButton, QMenu, QStackedWidget,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog,
+    QDialog, QDialogButtonBox, QCheckBox, QGroupBox,
+    QFormLayout, QSpinBox, QDoubleSpinBox,
+    QPushButton, QGridLayout, QComboBox,
 )
 
 from models import Point
@@ -13,6 +16,58 @@ from utils import clamp, _set_enabled, _read_text, apply_theme
 from worker import GrblWorker
 from preview import Preview3DWindow
 from pages import ControlPage, RunPage, SettingsPage
+
+
+class PanelConfigDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export G-code")
+        self.setModal(True)
+        self.setMinimumWidth(260)
+
+        layout = QVBoxLayout(self)
+
+        self.panel_cb = QCheckBox("Export as Panel (replicate waypoints)")
+        layout.addWidget(self.panel_cb)
+
+        self.panel_group = QGroupBox("Panel Settings")
+        self.panel_group.setEnabled(False)
+        pg = QFormLayout(self.panel_group)
+
+        self.rows_spin = QSpinBox()
+        self.rows_spin.setRange(1, 50)
+        self.rows_spin.setValue(1)
+
+        self.cols_spin = QSpinBox()
+        self.cols_spin.setRange(1, 50)
+        self.cols_spin.setValue(1)
+
+        self.total_lbl = QLabel("Total: 1 PCB")
+
+        pg.addRow("Rows:", self.rows_spin)
+        pg.addRow("Columns:", self.cols_spin)
+        pg.addRow(self.total_lbl)
+        layout.addWidget(self.panel_group)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self.panel_cb.toggled.connect(self.panel_group.setEnabled)
+        self.rows_spin.valueChanged.connect(self._update_total)
+        self.cols_spin.valueChanged.connect(self._update_total)
+
+    def _update_total(self):
+        n = self.rows_spin.value() * self.cols_spin.value()
+        self.total_lbl.setText(f"Total: {n} PCBs")
+
+    def is_panel(self):
+        return self.panel_cb.isChecked()
+
+    def get_layout(self):
+        return self.rows_spin.value(), self.cols_spin.value()
+
 
 
 class App(QWidget):
@@ -33,6 +88,7 @@ class App(QWidget):
 
         self.worker.alarm.connect(self.on_alarm)
         self.worker.grbl_reset.connect(self.on_grbl_reset)
+        self.worker.stream_progress.connect(self._on_stream_progress)
 
         self.points: list[Point] = []
         self._connected = False
@@ -172,7 +228,7 @@ class App(QWidget):
         _set_enabled(cp.jog_buttons, ok)
         _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                       cp.update_btn, cp.delete_btn, cp.clear_btn,
-                      cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn], ok)
+                      cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn, cp.export_panel_btn], ok)
 
         cp.update_btn.setEnabled(False)
         cp.console_send_btn.setEnabled(ok)
@@ -196,7 +252,7 @@ class App(QWidget):
         _set_enabled(cp.jog_buttons, self._connected and (not locked))
         _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                       cp.update_btn, cp.delete_btn, cp.clear_btn,
-                      cp.export_gcode_btn, cp.preview3d_btn], self._connected and (not locked))
+                      cp.export_gcode_btn, cp.export_panel_btn, cp.preview3d_btn], self._connected and (not locked))
         if locked:
             cp.update_btn.setEnabled(False)
         self.run_page.set_stream_state(st)
@@ -240,6 +296,9 @@ class App(QWidget):
 
     def _on_line_error_at(self, idx: int, msg: str):
         self.run_page.update_cmd_row_error(idx, msg)
+
+    def _on_stream_progress(self, done: int, total: int):
+        self.run_page.update_progress(done, total)
 
     def on_log(self, msg: str):
         self.control_page.append_log(msg)
@@ -407,6 +466,8 @@ class App(QWidget):
 
         cp.preview3d_btn.setEnabled(len(self.points) >= 2 and self._connected)
         cp.export_gcode_btn.setEnabled(len(self.points) >= 1 and self._connected)
+        cp.export_panel_btn.setEnabled(len(self.points) >= 1 and self._connected)
+        cp.save_waypoints_btn.setEnabled(len(self.points) >= 1)
         cp.delete_btn.setEnabled(len(self.points) >= 1 and self._connected)
         cp.update_btn.setEnabled(
             self._connected and (cp.wp_table.currentRow() >= 0) and (not self._streaming_now)
@@ -516,28 +577,132 @@ class App(QWidget):
         self._refresh_table_from_points()
         self.on_log(f"Imported {len(self.points)} waypoints from PCB CSV")
 
+    def save_waypoints_json(self):
+        if not self.points:
+            QMessageBox.warning(self, "No Points", "ไม่มี waypoints ที่จะบันทึก")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Waypoints", "waypoints.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        import json
+        data = [
+            {
+                "name": p.name,
+                "x": p.x, "y": p.y, "z": p.z,
+                "z_safe": p.z_safe,
+                "feed": p.feed_to_next,
+                "time": p.laser_time_s,
+                "power": p.power,
+            }
+            for p in self.points
+        ]
+        Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.on_log(f"Saved {len(self.points)} waypoints -> {path}")
+
+    def load_waypoints_json(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Waypoints", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        import json
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"ไม่สามารถอ่านไฟล์ได้:\n{e}")
+            return
+        points = []
+        for i, d in enumerate(data):
+            try:
+                points.append(Point(
+                    name=d.get("name", f"P{i+1}"),
+                    x=float(d["x"]), y=float(d["y"]), z=float(d["z"]),
+                    z_safe=float(d.get("z_safe", -2.0)),
+                    feed_to_next=int(d.get("feed", 1200)),
+                    laser_time_s=float(d.get("time", 0.0)),
+                    power=int(d.get("power", 255)),
+                ))
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"ข้อมูลผิดรูปแบบที่ index {i}:\n{e}")
+                return
+        self.points = points
+        self._refresh_table_from_points()
+        self.on_log(f"Loaded {len(self.points)} waypoints <- {path}")
+
+    def _point_lines(self, p, ox=0.0, oy=0.0, label=None):
+        f = int(p.feed_to_next)
+        name = label or p.name
+        return [
+            f"; {name}",
+            f"G0 X{p.x + ox:.3f} Y{p.y + oy:.3f} Z{p.z_safe:.3f}",
+            f"G1 Z{p.z:.3f} F{f}",
+            f"M3 S{p.power}",
+            f"G4 P{p.laser_time_s:.3f}",
+            f"M5",
+            f"G0 Z{p.z_safe:.3f}",
+        ]
+
+    def _build_panel_lines(self, offsets):
+        """offsets: list of (row, col, ox, oy)"""
+        lines = []
+        for row, col, ox, oy in offsets:
+            lines.append(f"; --- Panel [{row+1},{col+1}] offset X{ox:.3f} Y{oy:.3f} ---")
+            for p in self.points:
+                lines += self._point_lines(p, ox, oy, label=f"[{row+1},{col+1}]{p.name}")
+        self.on_log(f"Panel export: {len(offsets)} PCBs")
+        return lines
+
     def export_gcode(self):
         if not self.points:
             QMessageBox.warning(self, "No Points", "Capture points first.")
             return
+
+        cfg_dlg = PanelConfigDialog(parent=self)
+        if cfg_dlg.exec() != PanelConfigDialog.Accepted:
+            return
+
         path, _ = QFileDialog.getSaveFileName(self, "Export G-code", "points.gcode", "G-code (*.gcode *.nc *.ngc)")
         if not path:
             return
 
         lines = ["G90", "G21", "G54"]
-        for p in self.points:
-            f = int(p.feed_to_next)
-            lines += [
-                f"; {p.name}",
-                f"G0 X{p.x:.3f} Y{p.y:.3f} Z{p.z_safe:.3f}",
-                f"G1 Z{p.z:.3f} F{f}",
-                f"M3 S{p.power}",
-                f"G4 P{p.laser_time_s:.3f}",
-                f"M5",
-                f"G0 Z{p.z_safe:.3f}",
-            ]
+        if cfg_dlg.is_panel():
+            rows, cols = cfg_dlg.get_layout()
+            xs = [p.x for p in self.points]
+            ys = [p.y for p in self.points]
+            step_x = max(xs) - min(xs) if len(xs) > 1 else 50.0
+            step_y = max(ys) - min(ys) if len(ys) > 1 else 50.0
+            offsets = [(r, c, c * step_x, r * step_y)
+                       for r in range(rows) for c in range(cols)]
+            self.on_log(f"Panel export: {rows}×{cols} (step X={step_x:.3f} Y={step_y:.3f} mm)")
+            lines += self._build_panel_lines(offsets)
+        else:
+            for p in self.points:
+                lines += self._point_lines(p)
+
         Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.on_log(f"Exported: {path}")
+
+    def export_panel_gcode(self):
+        if not self.points:
+            QMessageBox.warning(self, "No Points", "Capture points first.")
+            return
+
+        from pcb_import import PanelExportDialog
+        dlg = PanelExportDialog(self.points, self.worker, self)
+        if dlg.exec() != PanelExportDialog.Accepted:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Export Panel G-code", "points_panel.gcode", "G-code (*.gcode *.nc *.ngc)")
+        if not path:
+            return
+
+        offsets = dlg.get_offsets()
+        lines = ["G90", "G21", "G54"] + self._build_panel_lines(offsets)
+        Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.on_log(f"Exported panel: {path}")
 
     # -------- GRBL actions --------
     def set_work_zero(self):

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(\"/c/Users/Yindee/Downloads/Work/pawintech/cnc_control/main.py\":*)",
       "Bash(python3 -c \":*)",
-      "Bash(python -c \"import pcb_import; print\\(''pcb_import OK''\\)\")"
+      "Bash(python -c \"import pcb_import; print\\(''pcb_import OK''\\)\")",
+      "Bash(wc -l *.py pages/*.py)",
+      "Bash(grep -h \"^import\\\\|^from\" *.py pages/*.py)"
     ]
   }
 }

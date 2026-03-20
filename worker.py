@@ -20,6 +20,7 @@ class GrblWorker(QThread):
     grbl_param_line = Signal(str)   # raw "$N=value (desc)" lines from $$
     alarm = Signal(str)             # "ALARM:N" line
     grbl_reset = Signal()           # GRBL sent startup banner (reset occurred)
+    stream_progress = Signal(int, int)  # (lines_done, lines_total)
 
     def __init__(self):
         super().__init__()
@@ -37,6 +38,8 @@ class GrblWorker(QThread):
         self._awaiting_ok = False
         self._current_stream_idx = -1
         self._mutex = QMutex()
+        self._stream_total = 0
+        self._stream_done = 0
 
     def set_poll_interval_ms(self, ms: int):
         self.poll_interval_ms = max(30, int(ms))
@@ -140,11 +143,14 @@ class GrblWorker(QThread):
             self._stream_paused = False
             self._awaiting_ok = False
             self._current_stream_idx = -1
+            self._stream_total = idx
+            self._stream_done = 0
         finally:
             self._mutex.unlock()
 
         self.stream_state.emit("running")
-        self.log.emit(f"Streaming started ({len(self._stream_queue)} lines)")
+        self.stream_progress.emit(0, self._stream_total)
+        self.log.emit(f"Streaming started ({self._stream_total} lines)")
 
     def pause_stream(self):
         if not self._streaming:
@@ -180,14 +186,22 @@ class GrblWorker(QThread):
         self._mutex.lock()
         try:
             if not self._stream_queue:
-                self._stop_stream_internal("done")
-                self.log.emit("Streaming done")
-                return
-            idx, ln = self._stream_queue.popleft()
-            self._awaiting_ok = True
-            self._current_stream_idx = idx
+                self._streaming = False
+                self._stream_paused = False
+                self._awaiting_ok = False
+                should_finish = True
+            else:
+                idx, ln = self._stream_queue.popleft()
+                self._awaiting_ok = True
+                self._current_stream_idx = idx
+                should_finish = False
         finally:
             self._mutex.unlock()
+
+        if should_finish:
+            self.stream_state.emit("done")
+            self.log.emit("Streaming done")
+            return
 
         self.line_sent.emit(idx, ln)
         self.send_line(ln)
@@ -244,9 +258,12 @@ class GrblWorker(QThread):
                                 try:
                                     self._awaiting_ok = False
                                     ack_idx = self._current_stream_idx
+                                    self._stream_done += 1
+                                    done, total = self._stream_done, self._stream_total
                                 finally:
                                     self._mutex.unlock()
                                 self.line_ack.emit(ack_idx)
+                                self.stream_progress.emit(done, total)
                                 self._maybe_send_next_stream_line()
 
                         elif line.startswith("error") or line.startswith("ALARM"):
