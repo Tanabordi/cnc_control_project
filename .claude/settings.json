@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import app; import pages.control_page\")",
+      "Bash(find . -type f \\\\\\(-name *.py -o -name *.json -o -name *.gcode -o -name *.md -o -name *.txt \\\\\\))",
+      "Bash(find . -type f -name *.py -o -name *.json -o -name *.gcode)"
+    ]
+  }
+}

@@ -82,21 +82,33 @@ class ControlPage(QWidget):
 
         self.load_points_gcode_btn = _btn("Load Points (.gcode)")
         self.load_csv_pcb_btn = _btn("Import PCB CSV")
+        self.save_waypoints_btn = _btn("Save Waypoints (.json)")
+        self.load_waypoints_btn = _btn("Load Waypoints (.json)", enabled=True)
         self.capture_btn = _btn("Capture Waypoint")
         self.update_btn = _btn("Update Selected")
         self.delete_btn = _btn("Delete Selected")
         self.clear_btn = _btn("Clear Points")
         self.preview3d_btn = _btn("Preview 3D")
         self.export_gcode_btn = _btn("Export G-code (.gcode)")
+        self.export_panel_btn = _btn("Export Panel (.gcode)")
 
-        btn_bar = QHBoxLayout()
-        btn_bar.setSpacing(6)
-        for b in [self.load_points_gcode_btn, self.load_csv_pcb_btn, self.capture_btn,
-                  self.update_btn, self.delete_btn, self.clear_btn,
-                  self.preview3d_btn, self.export_gcode_btn]:
+        btn_row1 = QHBoxLayout()
+        btn_row1.setSpacing(6)
+        for b in [self.load_points_gcode_btn, self.load_csv_pcb_btn,
+                  self.save_waypoints_btn, self.load_waypoints_btn,
+                  self.export_gcode_btn, self.export_panel_btn]:
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            btn_bar.addWidget(b)
-        L.addLayout(btn_bar)
+            btn_row1.addWidget(b)
+
+        btn_row2 = QHBoxLayout()
+        btn_row2.setSpacing(6)
+        for b in [self.capture_btn, self.update_btn, self.delete_btn,
+                  self.clear_btn, self.preview3d_btn]:
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn_row2.addWidget(b)
+
+        L.addLayout(btn_row1)
+        L.addLayout(btn_row2)
 
         self.wp_table = WaypointTable(self)
         self.wp_table.setColumnCount(7)
@@ -326,12 +338,15 @@ class ControlPage(QWidget):
 
         self.load_points_gcode_btn.clicked.connect(self.app.load_points_gcode)
         self.load_csv_pcb_btn.clicked.connect(self.app.load_pcb_csv)
+        self.save_waypoints_btn.clicked.connect(self.app.save_waypoints_json)
+        self.load_waypoints_btn.clicked.connect(self.app.load_waypoints_json)
         self.capture_btn.clicked.connect(self.app.capture_point)
         self.update_btn.clicked.connect(self.app.update_selected_point)
         self.delete_btn.clicked.connect(self.app.delete_selected_point)
         self.clear_btn.clicked.connect(self.app.clear_points)
         self.preview3d_btn.clicked.connect(self.app.preview_3d)
         self.export_gcode_btn.clicked.connect(self.app.export_gcode)
+        self.export_panel_btn.clicked.connect(self.app.export_panel_gcode)
 
     def append_log(self, line: str):
         import html
