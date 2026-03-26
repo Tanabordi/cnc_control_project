@@ -95,11 +95,7 @@ class App(QWidget):
         self._streaming_now = False
         self._alarm_active = False
         self._last_auto_x_time = 0.0  # cooldown: prevent $X spam
-<<<<<<< HEAD
         self._home_state = ""  # "after_H" | "after_dir_set" | "after_HZ"
-=======
-        self._home_state = ""  # "after_H" | "after_HZ"
->>>>>>> NewFeatures
 
         # --- Top bar ---
         top = QHBoxLayout()
@@ -306,22 +302,16 @@ class App(QWidget):
         self.settings_page.append_log(msg)
         if self._home_state and msg.strip().lower() == "ok":
             if self._home_state == "after_H":
-<<<<<<< HEAD
                 self._home_state = "after_dir_set"
                 self.worker.send_line("$3=4")
             elif self._home_state == "after_dir_set":
-=======
->>>>>>> NewFeatures
                 self._home_state = "after_HZ"
                 self.worker.send_line("$HZ")
                 self.on_log("Homing Z...")
             elif self._home_state == "after_HZ":
                 self._home_state = ""
-<<<<<<< HEAD
                 self.worker.send_line("$3=0")
-=======
                 self.on_log("Homing done.")
->>>>>>> NewFeatures
 
     # -------- Console --------
     def send_console_command(self):

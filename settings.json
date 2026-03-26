@@ -9,7 +9,7 @@
   "ymax": 1000.0,
   "zmin": -50.0,
   "zmax": 50.0,
-  "last_port": "COM5",
+  "last_port": "COM4",
   "safe_z": 5.0,
   "theme": "dark"
 }
