@@ -226,7 +226,7 @@ class ControlPage(QWidget):
         lv.addWidget(self.log_view)
         
         self.clear_log_btn = _btn("Clear Log", enabled=True)
-        self.clear_log_btn.clicked.connect(self.log_view.clear)
+        self.clear_log_btn.clicked.connect(self.app.clear_all_logs)
         lv.addWidget(self.clear_log_btn, alignment=Qt.AlignRight)
         
         R.addWidget(log_box, 1)

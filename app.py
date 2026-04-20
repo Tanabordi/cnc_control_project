@@ -218,6 +218,12 @@ class MainWindow(QWidget):
     def on_log(self, msg: str):
         signal_handlers.on_log(self, msg)
 
+    def clear_all_logs(self):
+        self.control_page.log_view.clear()
+        self.run_page.log_view.clear()
+        if hasattr(self.settings_page, 'log_view'):
+            self.settings_page.log_view.clear()
+
     def _on_line_sent(self, idx: int, cmd: str):
         signal_handlers._on_line_sent(self, idx, cmd)
 
