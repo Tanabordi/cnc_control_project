@@ -5,7 +5,9 @@ def get_step(main_window):
     """Get current step size."""
     cp = main_window.control_page
     mode = cp.step_mode.currentText()
-    return float(mode) if mode in ("0.1", "1", "10") else float(cp.step_mm.value())
+    # Extract just the number part (e.g., "0.1 mm" -> "0.1")
+    mode_value = mode.split()[0] if " " in mode else mode
+    return float(mode_value) if mode_value in ("0.1", "1", "10") else float(cp.step_mm.value())
 
 
 def on_step_mode(main_window, txt: str):
