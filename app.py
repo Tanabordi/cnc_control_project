@@ -72,7 +72,7 @@ class MainWindow(QWidget):
         root.addWidget(self.stack, 1)
         self.setMinimumSize(900, 550) # ยังคงเก็บขั้นต่ำไว้ เผื่อผู้ใช้กดปุ่มย่อหน้าต่าง (Restore Down) มันจะได้ไม่พัง
         self.showMaximized()          # <--- เพิ่มคำสั่งนี้เพื่อบังคับขยายเต็มจอตั้งแต่เริ่มรันโปรแกรม
-
+        
         # --- Setup connections ---
         self.act_control.triggered.connect(lambda: self.show_page("control"))
         self.act_run.triggered.connect(lambda: self.show_page("run"))

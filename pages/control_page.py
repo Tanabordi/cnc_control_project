@@ -197,12 +197,23 @@ class ControlPage(QWidget):
         R.addWidget(wp_box, 3) # ให้ตารางกินพื้นที่เยอะที่สุด (Weight = 3)
 
         # Console & Log
-        log_box = QGroupBox("📋 Console & Log")
+        log_box = QGroupBox("📋 Console_Log")
         lv = QVBoxLayout(log_box)
         
         console_row = QHBoxLayout()
         self.console_input = QLineEdit()
         self.console_input.setPlaceholderText("Send direct GRBL command...")
+        
+        # 🟢 บังคับสีช่องพิมพ์: พื้นหลังดำเทา ตัวหนังสือสีขาว ขอบสีเทาอ่อน
+        self.console_input.setStyleSheet("""
+            QLineEdit {
+                color: #FFFFFF; 
+                background-color: #2b2b2b; 
+                border: 1px solid #666666;
+                padding: 4px;
+            }
+        """)
+        
         self.console_send_btn = _btn("Send", enabled=False)
         console_row.addWidget(self.console_input); console_row.addWidget(self.console_send_btn)
         lv.addLayout(console_row)
@@ -210,13 +221,23 @@ class ControlPage(QWidget):
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(150)
+        
+        # 🟢 บังคับสีช่อง Log: พื้นหลังดำ ตัวหนังสือสีเขียว (สไตล์ Hacker/CNC) หรือจะใช้สีขาวก็ได้
+        self.log_view.setStyleSheet("""
+            QTextEdit {
+                color: #00FF00; 
+                background-color: #111111; 
+                border: 1px solid #666666;
+                font-family: monospace;
+            }
+        """)
         lv.addWidget(self.log_view)
         
         self.clear_log_btn = _btn("Clear Log", enabled=True)
         self.clear_log_btn.clicked.connect(self.log_view.clear)
         lv.addWidget(self.clear_log_btn, alignment=Qt.AlignRight)
         
-        R.addWidget(log_box, 1) # Log กินพื้นที่น้อยกว่า (Weight = 1)
+        R.addWidget(log_box, 1)
 
         # นำซ้ายและขวาใส่ Splitter
         splitter.addWidget(left_scroll)
