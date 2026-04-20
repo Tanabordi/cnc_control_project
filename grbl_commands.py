@@ -1,0 +1,67 @@
+"""GRBL-specific commands."""
+
+from PySide6.QtWidgets import QMessageBox
+
+
+def set_work_zero(main_window):
+    """Set G54 work zero at current position."""
+    main_window.worker.send_line("G10 L20 P1 X0 Y0 Z0")
+    main_window.on_log("Set G54 work zero at current position")
+
+
+def go_machine_zero(main_window):
+    """Go to machine zero in G53 coordinates."""
+    main_window.worker.send_line("G90")
+    main_window.worker.send_line("G53 G0 X0 Y0 Z0")
+    main_window.on_log("Go to Machine Zero (G53)")
+
+
+def do_home(main_window):
+    """Start homing sequence."""
+    if not main_window.controller.is_connected():
+        return
+    main_window.controller.start_homing()
+    main_window.on_log("Homing started...")
+
+
+def do_reset(main_window):
+    """Reset GRBL."""
+    if not main_window.controller.is_connected():
+        return
+    main_window.worker.send_reset()
+    if main_window.control_page.auto_unlock_cb.isChecked():
+        main_window.worker.send_line("$X")
+
+
+def do_estop(main_window):
+    """Emergency stop."""
+    if not main_window.controller.is_connected():
+        return
+    ret = QMessageBox.question(
+        main_window, "Confirm E-STOP",
+        "ต้องการสั่ง E-STOP ใช่ไหม?\n(จะส่ง HOLD ! + CTRL+X และไม่ Auto Unlock)",
+        QMessageBox.Yes | QMessageBox.No
+    )
+    if ret != QMessageBox.Yes:
+        return
+    main_window.worker.estop()
+
+
+def send_console_command(main_window):
+    """Send command from console input."""
+    cp = main_window.control_page
+    cmd = cp.console_input.text().strip()
+    if not cmd:
+        return
+    main_window.worker.send_line(cmd)
+    cp.console_input.clear()
+
+
+def send_run_console_command(main_window):
+    """Send command from run page console input."""
+    rp = main_window.run_page
+    cmd = rp.console_input.text().strip()
+    if not cmd:
+        return
+    main_window.worker.send_line(cmd)
+    rp.console_input.clear()
