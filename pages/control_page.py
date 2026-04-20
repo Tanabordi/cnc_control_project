@@ -43,7 +43,6 @@ class ControlPage(QWidget):
 
         # 2. Machine Status (ขวาบน - ข้อมูลที่สำคัญที่สุดสำหรับ PCB)
         status_box = QGroupBox("📍 Machine Status")
-        status_box.setStyleSheet("QGroupBox { background-color: #F0F8FF; border: 2px solid #0D6EFD; }")
         sg = QHBoxLayout(status_box)
         sg.setContentsMargins(10, 6, 10, 6)
         
@@ -204,13 +203,10 @@ class ControlPage(QWidget):
         self.console_input = QLineEdit()
         self.console_input.setPlaceholderText("Send direct GRBL command...")
         
-        # 🟢 บังคับสีช่องพิมพ์: พื้นหลังดำเทา ตัวหนังสือสีขาว ขอบสีเทาอ่อน
         self.console_input.setStyleSheet("""
             QLineEdit {
-                color: #FFFFFF; 
-                background-color: #2b2b2b; 
-                border: 1px solid #666666;
                 padding: 4px;
+                font-family: monospace;
             }
         """)
         
@@ -222,12 +218,8 @@ class ControlPage(QWidget):
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(150)
         
-        # 🟢 บังคับสีช่อง Log: พื้นหลังดำ ตัวหนังสือสีเขียว (สไตล์ Hacker/CNC) หรือจะใช้สีขาวก็ได้
         self.log_view.setStyleSheet("""
             QTextEdit {
-                color: #00FF00; 
-                background-color: #111111; 
-                border: 1px solid #666666;
                 font-family: monospace;
             }
         """)
