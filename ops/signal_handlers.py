@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import QMessageBox
 
-from utils import _set_enabled
+from core.utils import _set_enabled
 
 
 def setup_signal_handlers(main_window):

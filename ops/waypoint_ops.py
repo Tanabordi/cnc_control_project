@@ -5,7 +5,7 @@ import json
 
 from PySide6.QtWidgets import QMessageBox, QFileDialog, QTableWidgetItem
 
-from utils import clamp
+from core.utils import clamp
 
 
 def on_waypoint_clicked(main_window, row: int, col: int):

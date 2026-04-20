@@ -1,7 +1,7 @@
 import math
 
-from models import Segment
-from utils import _strip_gcode_line, _parse_words
+from core.models import Segment
+from core.utils import _strip_gcode_line, _parse_words
 
 # Optional: matplotlib
 try:

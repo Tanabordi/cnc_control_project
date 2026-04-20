@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QApplication, QSplitter, QScrollArea, QFrame, QCheckBox, QGridLayout
 )
 from PySide6.QtCore import Qt
-from utils import _btn
+from core.utils import _btn
 
 # จำลองตารางเพื่อให้ไม่ติด Error
 WaypointTable = QTableWidget

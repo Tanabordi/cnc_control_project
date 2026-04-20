@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
 )
 
-from models import Point
+from core.models import Point
 
 
 @dataclass

@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QCheckBox, QSplitter, QProgressBar
 )
 
-from gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
-from utils import _btn, _set_enabled, _read_text, _ts
+from ops.gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
+from core.utils import _btn, _set_enabled, _read_text, _ts
 
 
 class RunPage(QWidget):

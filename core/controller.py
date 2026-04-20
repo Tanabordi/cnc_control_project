@@ -5,10 +5,10 @@ import time
 
 from PySide6.QtWidgets import QMessageBox, QFileDialog
 
-from models import Point
-from settings import AppSettings
-from utils import _strip_gcode_line, _parse_words, _read_text
-from worker import GrblWorker
+from core.models import Point
+from core.settings import AppSettings
+from core.utils import _strip_gcode_line, _parse_words, _read_text
+from core.worker import GrblWorker
 
 
 class CNCController:

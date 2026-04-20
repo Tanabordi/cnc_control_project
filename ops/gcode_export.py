@@ -3,7 +3,7 @@
 from pathlib import Path
 from PySide6.QtWidgets import QMessageBox, QFileDialog
 
-from dialogs import PanelConfigDialog
+from gui.dialogs import PanelConfigDialog
 
 
 def export_gcode(main_window):

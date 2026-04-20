@@ -4,7 +4,7 @@ import locale
 from PySide6.QtCore import QLocale
 from PySide6.QtWidgets import QApplication
 
-from app import MainWindow
+from gui.app import MainWindow
 
 
 if __name__ == "__main__":

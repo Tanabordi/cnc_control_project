@@ -9,20 +9,20 @@ from PySide6.QtWidgets import (
     QMessageBox, QFileDialog,
 )
 
-from models import Point
-from settings import load_settings, save_settings
-from utils import clamp, _set_enabled, apply_theme
-from worker import GrblWorker
-from preview import Preview3DWindow
-from pages import ControlPage, RunPage, SettingsPage
-from controller import CNCController
+from core.models import Point
+from core.settings import load_settings, save_settings
+from core.utils import clamp, _set_enabled, apply_theme
+from core.worker import GrblWorker
+from gui.preview import Preview3DWindow
+from gui.pages import ControlPage, RunPage, SettingsPage
+from core.controller import CNCController
 
 # Import operation modules
-import signal_handlers
-import waypoint_ops
-import gcode_export
-import grbl_commands
-import movement
+from ops import signal_handlers
+from ops import waypoint_ops
+from ops import gcode_export
+from ops import grbl_commands
+from ops import movement
 
 
 class MainWindow(QWidget):

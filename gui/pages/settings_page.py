@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
     QMessageBox
 )
 
-from settings import AppSettings, save_settings, load_settings, SETTINGS_PATH
-from utils import _btn, _ts, apply_theme
+from core.settings import AppSettings, save_settings, load_settings, SETTINGS_PATH
+from core.utils import _btn, _ts, apply_theme
 
 
 GRBL_DESC = {
