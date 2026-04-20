@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local configuration & output files
+settings.json
+*.gcode
+*.json
+!CSV/*.json  # ยกเว้นถ้ามีไฟล์ json ในโฟลเดอร์ CSV ที่อยากเก็บไว้
+
+# Editor directories
+.vscode/
+.idea/
+.claude/
+
+# Virtual Environments (เผื่อมีการใช้ในอนาคต)
+venv/
+env/
+.venv/
