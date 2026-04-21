@@ -33,7 +33,8 @@ def on_connected(main_window, ok: bool):
     _set_enabled(cp.jog_buttons, ok)
     _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
-                  cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn, cp.export_panel_btn], ok)
+                  cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn, cp.export_panel_btn,
+                  cp.import_vector_btn, cp.import_image_btn], ok)
 
     cp.update_btn.setEnabled(False)
     cp.console_send_btn.setEnabled(ok)
@@ -57,7 +58,8 @@ def on_stream_state(main_window, st: str):
     _set_enabled(cp.jog_buttons, main_window.controller.is_connected() and (not locked))
     _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
-                  cp.export_gcode_btn, cp.export_panel_btn, cp.preview3d_btn], main_window.controller.is_connected() and (not locked))
+                  cp.export_gcode_btn, cp.export_panel_btn, cp.preview3d_btn,
+                  cp.import_vector_btn, cp.import_image_btn], main_window.controller.is_connected() and (not locked))
     if locked:
         cp.update_btn.setEnabled(False)
     main_window.run_page.set_stream_state(st)

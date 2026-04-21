@@ -213,7 +213,7 @@ class RunPage(QWidget):
 
         # ---- signals ----
         self.load_btn.clicked.connect(self.on_load)
-        self.reset_btn.clicked.connect(self.app.worker.send_reset)
+        self.reset_btn.clicked.connect(self.app.do_reset)
         self.run_btn.clicked.connect(self.on_run_confirm)
         self.pause_btn.clicked.connect(self.app.worker.pause_stream)
         self.resume_btn.clicked.connect(self.app.worker.resume_stream)

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolButton, QMenu, QStackedWidget,
-    QMessageBox, QFileDialog,
+    QMessageBox, QFileDialog, QDialog,
 )
 
 from core.models import Point
@@ -104,11 +104,11 @@ class MainWindow(QWidget):
         self.control_page.home_btn.clicked.connect(self.do_home)
         self.control_page.reset_btn.clicked.connect(self.do_reset)
         self.control_page.estop_btn.clicked.connect(self.do_estop)
+        self.control_page.unlock_btn.clicked.connect(lambda: self.worker.send_line("$X"))
         self.control_page.zero_btn.clicked.connect(self.set_work_zero)
         self.control_page.go_zero_btn.clicked.connect(self.go_machine_zero)
 
-        self.run_page.console_send_btn.clicked.connect(self.send_run_console_command)
-        self.run_page.reset_btn.clicked.connect(self.do_reset)
+        self.control_page.console_input.returnPressed.connect(self.send_console_command)
 
         # ---------------------------------------------------------
         # เสียบสายไฟให้ปุ่ม Connection
@@ -360,6 +360,8 @@ class MainWindow(QWidget):
         """Handle window close event."""
         try:
             self.worker.disconnect_serial()
+            if self.worker.isRunning():
+                self.worker.wait(2000)  # wait up to 2s for thread to exit
         except Exception:
             pass
         event.accept()

@@ -126,7 +126,7 @@ def clear_points(main_window):
 
 def preview_3d(main_window):
     """Preview 3D path."""
-    from preview import Preview3DWindow
+    from gui.preview import Preview3DWindow
     if not main_window.controller.points or len(main_window.controller.points) < 2:
         QMessageBox.warning(main_window, "Preview 3D", "ต้องมีอย่างน้อย 2 points")
         return
@@ -150,7 +150,7 @@ def load_points_gcode(main_window):
 
 def load_pcb_csv(main_window):
     """Import PCB positions from CSV."""
-    from pcb_import import parse_pcb_csv, PcbCalibDialog
+    from ops.pcb_import import parse_pcb_csv, PcbCalibDialog
     path, _ = QFileDialog.getOpenFileName(
         main_window, "Import PCB CSV", "", "CSV Files (*.csv);;All Files (*)"
     )
