@@ -155,6 +155,9 @@ class ControlPage(QWidget):
         self.export_gcode_btn = _btn("📤 Exp G-code")
         self.export_panel_btn = _btn("📋 Exp Panel")
         
+        self.import_vector_btn = _btn("📐 Import SVG/DXF")
+        self.import_image_btn = _btn("🖼️ Import Image")
+        
         self.capture_btn = _btn("📍 Capture WP"); self.capture_btn.setStyleSheet("background-color: #198754; color: white;")
         self.update_btn = _btn("✏️ Update WP")
         self.delete_btn = _btn("🗑️ Delete WP")
@@ -166,6 +169,7 @@ class ControlPage(QWidget):
         btn_grid.addWidget(self.save_waypoints_btn, 1, 0); btn_grid.addWidget(self.load_waypoints_btn, 1, 1); btn_grid.addWidget(self.export_gcode_btn, 1, 2)
         btn_grid.addWidget(self.capture_btn, 2, 0); btn_grid.addWidget(self.update_btn, 2, 1); btn_grid.addWidget(self.export_panel_btn, 2, 2)
         btn_grid.addWidget(self.delete_btn, 3, 0); btn_grid.addWidget(self.clear_btn, 3, 1)
+        btn_grid.addWidget(self.import_vector_btn, 4, 0); btn_grid.addWidget(self.import_image_btn, 4, 1)
         al.addLayout(btn_grid)
         L.addWidget(action_box)
         

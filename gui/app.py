@@ -96,6 +96,8 @@ class MainWindow(QWidget):
         self.control_page.load_waypoints_btn.clicked.connect(self.load_waypoints_json)
         self.control_page.export_gcode_btn.clicked.connect(self.export_gcode)
         self.control_page.export_panel_btn.clicked.connect(self.export_panel_gcode)
+        self.control_page.import_vector_btn.clicked.connect(self.import_vector_file)
+        self.control_page.import_image_btn.clicked.connect(self.import_image_file)
         self.control_page.wp_table.cellClicked.connect(self.on_waypoint_clicked)
         self.control_page.console_send_btn.clicked.connect(self.send_console_command)
 
@@ -275,6 +277,14 @@ class MainWindow(QWidget):
 
     def load_waypoints_json(self):
         waypoint_ops.load_waypoints_json(self)
+
+    def import_vector_file(self):
+        """Import SVG or DXF file for processing."""
+        pass
+
+    def import_image_file(self):
+        """Import PNG or JPG file for edge tracing."""
+        pass
 
     # -------- G-code export (delegate to gcode_export module) --------
     def export_gcode(self):
