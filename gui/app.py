@@ -280,7 +280,20 @@ class MainWindow(QWidget):
 
     def import_vector_file(self):
         """Import SVG or DXF file for processing."""
-        pass
+        from ops.vector_import import VectorImportDialog
+
+        dlg = VectorImportDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        new_points = dlg.get_waypoints()
+        if not new_points:
+            QMessageBox.information(self, "No Data", "No waypoints were generated from the file.")
+            return
+
+        self.controller.points.extend(new_points)
+        self._refresh_table_from_points()
+        self.on_log(f"Imported {len(new_points)} waypoints from vector file.")
 
     def import_image_file(self):
         """Import PNG or JPG file for edge tracing."""
