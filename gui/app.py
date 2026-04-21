@@ -297,7 +297,20 @@ class MainWindow(QWidget):
 
     def import_image_file(self):
         """Import PNG or JPG file for edge tracing."""
-        pass
+        from ops.image_import import ImageImportDialog
+
+        dlg = ImageImportDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        new_points = dlg.get_waypoints()
+        if not new_points:
+            QMessageBox.information(self, "No Data", "No waypoints were generated from the image.")
+            return
+
+        self.controller.points.extend(new_points)
+        self._refresh_table_from_points()
+        self.on_log(f"Imported {len(new_points)} waypoints from image edge trace.")
 
     # -------- G-code export (delegate to gcode_export module) --------
     def export_gcode(self):
