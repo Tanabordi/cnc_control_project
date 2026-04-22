@@ -338,7 +338,7 @@ class MainWindow(QWidget):
         """Import SVG or DXF file for processing."""
         from ops.vector_import import VectorImportDialog
 
-        dlg = VectorImportDialog(self)
+        dlg = VectorImportDialog(worker=self.worker, parent=self)
         if dlg.exec() != QDialog.Accepted:
             return
 
@@ -355,7 +355,7 @@ class MainWindow(QWidget):
         """Import PNG or JPG file for edge tracing."""
         from ops.image_import import ImageImportDialog
 
-        dlg = ImageImportDialog(self)
+        dlg = ImageImportDialog(worker=self.worker, parent=self)
         if dlg.exec() != QDialog.Accepted:
             return
 

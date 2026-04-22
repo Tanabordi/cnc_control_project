@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.models import Point
+from core.transform import compute_affine_2point, apply_affine_to_point
 
 
 @dataclass
@@ -501,38 +502,29 @@ class PcbCalibDialog(QDialog):
         p1_comp = self.p1_comp_combo.currentData()
         p2_comp = self.p2_comp_combo.currentData()
 
-        csv_p1x, csv_p1y = p1_comp.pos_x, p1_comp.pos_y
-        csv_p2x, csv_p2y = p2_comp.pos_x, p2_comp.pos_y
+        csv_p1 = (p1_comp.pos_x, p1_comp.pos_y)
+        csv_p2 = (p2_comp.pos_x, p2_comp.pos_y)
 
-        mx1, my1 = self.p1_machine
-        mx2, my2 = self.p2_machine
-
-        dcx = csv_p2x - csv_p1x
-        dcy = csv_p2y - csv_p1y
-        dmx = mx2 - mx1
-        dmy = my2 - my1
-
-        csv_len  = math.sqrt(dcx * dcx + dcy * dcy)
-        mach_len = math.sqrt(dmx * dmx + dmy * dmy)
-
-        if csv_len == 0 or mach_len == 0:
+        result = compute_affine_2point(
+            csv_p1, csv_p2,
+            self.p1_machine, self.p2_machine
+        )
+        if result is None:
             return []
-
-        scale = mach_len / csv_len
-        rot   = math.atan2(dmy, dmx) - math.atan2(dcy, dcx)
-        cos_r = math.cos(rot) * scale
-        sin_r = math.sin(rot) * scale
 
         points = []
         for comp in self.components:
-            lx = comp.pos_x - csv_p1x
-            ly = comp.pos_y - csv_p1y
-            rx = lx * cos_r - ly * sin_r
-            ry = lx * sin_r + ly * cos_r
+            mx, my = apply_affine_to_point(
+                comp.pos_x, comp.pos_y,
+                anchor=csv_p1,
+                cos_r=result.cos_r,
+                sin_r=result.sin_r,
+                translation=self.p1_machine
+            )
             points.append(Point(
                 name=comp.ref,
-                x=round(mx1 + rx, 3),
-                y=round(my1 + ry, 3),
+                x=round(mx, 3),
+                y=round(my, 3),
                 z=round(self.z_surface, 3),
                 feed_to_next=default_feed,
                 laser_time_s=default_time,

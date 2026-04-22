@@ -63,6 +63,16 @@ TRANSLATIONS = {
     "btn_exp_panel":         {"en": "📋 Exp Panel",       "th": "📋 ส่งออก Panel"},
     "btn_import_vector":     {"en": "📐 Import SVG/DXF",  "th": "📐 นำเข้า SVG/DXF"},
     "btn_import_image":      {"en": "🖼️ Import Image",   "th": "🖼️ นำเข้ารูปภาพ"},
+    
+    # ── Import Dialogs (Vector/Image/Calibration) ──
+    "lbl_job_origin":        {"en": "Job Origin:",        "th": "จุดเริ่มต้นงาน:"},
+    "origin_bottom_left":    {"en": "Bottom-Left (Default)", "th": "มุมล่างซ้าย (ค่าเริ่มต้น)"},
+    "origin_center":         {"en": "Center of Bounding Box", "th": "กึ่งกลางชิ้นงาน"},
+    "btn_calibrate_material":{"en": "🔧 Calibrate Material", "th": "🔧 ปรับตำแหน่งชิ้นงาน"},
+    "dlg_calibration_title": {"en": "Material Calibration — 2-Point", "th": "ปรับตำแหน่ง — 2 จุดอ้างอิง"},
+    "lbl_calib_step1":       {"en": "Step 1 — Jog to P1 (Bottom-Left corner):", "th": "ขั้นตอน 1 — เลื่อนหัวไปที่ P1 (มุมล่างซ้าย):"},
+    "lbl_calib_step2":       {"en": "Step 2 — Jog to P2 (Top-Right corner):", "th": "ขั้นตอน 2 — เลื่อนหัวไปที่ P2 (มุมบนขวา):"},
+
     "btn_capture":           {"en": "📍 Capture WP",      "th": "📍 บันทึกพิกัด (Capture)"},
     "btn_update_wp":         {"en": "✏️ Update WP",       "th": "✏️ แก้ไขพิกัด"},
     "btn_delete_wp":         {"en": "🗑️ Delete WP",      "th": "🗑️ ลบพิกัด"},

@@ -14,172 +14,148 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QGroupBox, QWidget,
     QDoubleSpinBox, QSpinBox, QSlider,
     QFileDialog, QMessageBox, QSizePolicy,
-    QCheckBox,
+    QCheckBox, QComboBox
 )
 
 from core.models import Point
+from core.transform import (
+    compute_bounding_box, center_shift_polylines,
+    compute_affine_2point, apply_affine_to_polylines,
+)
 
 
 # ---------------------------------------------------------------------------
-# Edge detection helpers
+# OpenCV Edge Tracing
 # ---------------------------------------------------------------------------
 
-def detect_edges(
+def _trace_edges(
     img_bgr: np.ndarray,
-    canny_lo: int = 50,
-    canny_hi: int = 150,
+    thresh1: int,
+    thresh2: int,
     blur_k: int = 5,
-    dilate_iter: int = 0,
-) -> np.ndarray:
+    invert: bool = False
+) -> Tuple[np.ndarray, List[List[Tuple[float, float]]]]:
     """
-    Convert a BGR image to a Canny edge map.
+    Run Canny edge detection and find continuous contours.
 
-    Returns a single-channel uint8 image where edges are 255.
+    Returns:
+        edge_map: 8-bit single-channel image of the edges (for preview).
+        polylines: List of paths. Each path is a list of (x,y) pixel coordinates.
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    if invert:
+        gray = cv2.bitwise_not(gray)
 
-    # Gaussian blur to suppress noise
     if blur_k > 0:
-        k = blur_k | 1  # ensure odd
+        k = max(1, blur_k)
+        if k % 2 == 0:
+            k += 1
         gray = cv2.GaussianBlur(gray, (k, k), 0)
 
-    edges = cv2.Canny(gray, canny_lo, canny_hi)
+    edges = cv2.Canny(gray, thresh1, thresh2)
 
-    # Optional dilation to thicken / close gaps
-    if dilate_iter > 0:
-        kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=dilate_iter)
-
-    return edges
-
-
-def find_contour_polylines(
-    edge_map: np.ndarray,
-    min_length: int = 10,
-    epsilon_factor: float = 0.002,
-) -> List[List[Tuple[float, float]]]:
-    """
-    Find contours from a Canny edge map and return simplified polylines.
-
-    Each polyline is a list of (x, y) pixel coordinates.
-    Contours shorter than ``min_length`` pixels are discarded.
-
-    ``epsilon_factor`` controls Douglas-Peucker simplification:
-    lower = more detail, higher = fewer points.
-    """
+    # findContours returns a list of arrays: shape (N, 1, 2)
     contours, _ = cv2.findContours(
-        edge_map, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+        edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_TC89_L1
     )
 
-    polylines: List[List[Tuple[float, float]]] = []
-
+    polylines = []
     for cnt in contours:
-        # Skip tiny contours (noise)
-        arc_len = cv2.arcLength(cnt, closed=False)
-        if arc_len < min_length:
+        if len(cnt) < 2:
             continue
+        poly = []
+        for pt in cnt:
+            x, y = pt[0]
+            poly.append((float(x), float(y)))
+        polylines.append(poly)
 
-        # Douglas-Peucker simplification
-        epsilon = epsilon_factor * arc_len
-        approx = cv2.approxPolyDP(cnt, epsilon, closed=False)
-
-        coords: List[Tuple[float, float]] = []
-        for pt in approx:
-            px, py = float(pt[0][0]), float(pt[0][1])
-            coords.append((px, py))
-
-        if len(coords) >= 2:
-            polylines.append(coords)
-
-    return polylines
+    return edges, polylines
 
 
 # ---------------------------------------------------------------------------
 # Preview canvas
 # ---------------------------------------------------------------------------
 
-def _cv_to_qimage(img_bgr: np.ndarray) -> QImage:
-    """Convert an OpenCV BGR image to a QImage (RGB888)."""
-    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    h, w, ch = rgb.shape
-    bytes_per_line = ch * w
-    return QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
-
-
-def _edge_to_qimage(edge_map: np.ndarray) -> QImage:
-    """Convert a single-channel edge map to a QImage."""
-    h, w = edge_map.shape
-    return QImage(edge_map.data, w, h, w, QImage.Format_Grayscale8).copy()
-
-
 class ImagePreviewCanvas(QWidget):
-    """Side-by-side preview: original image (left) and edge overlay (right)."""
+    """Shows the original image superimposed with the detected edge polylines."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._original: Optional[QImage] = None
-        self._edges: Optional[QImage] = None
-        self._contour_img: Optional[QImage] = None
-        self.setMinimumSize(400, 240)
+        self.setMinimumSize(320, 320)
+        self._margin = 16
 
-    def set_images(
-        self,
-        original: Optional[np.ndarray],
-        edge_map: Optional[np.ndarray],
-        contours_vis: Optional[np.ndarray] = None,
-    ):
-        """Update the preview with new images."""
-        self._original = _cv_to_qimage(original) if original is not None else None
-        self._edges = _edge_to_qimage(edge_map) if edge_map is not None else None
-        self._contour_img = (
-            _cv_to_qimage(contours_vis) if contours_vis is not None else None
-        )
+        self._pixmap = QPixmap()
+        self._polylines: List[List[Tuple[float, float]]] = []
+        self._img_w = 0
+        self._img_h = 0
+
+    def set_image(self, bgr_array: np.ndarray):
+        h, w, c = bgr_array.shape
+        self._img_w = w
+        self._img_h = h
+        rgb = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
+        bytes_per_line = 3 * w
+        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        self._pixmap = QPixmap.fromImage(qimg)
+        self.update()
+
+    def set_polylines(self, polylines: List[List[Tuple[float, float]]]):
+        self._polylines = polylines
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
         painter.fillRect(self.rect(), QColor(24, 24, 30))
 
-        if self._original is None:
+        if self._pixmap.isNull():
             painter.setPen(QColor(120, 120, 140))
-            painter.setFont(QFont("Arial", 10))
             painter.drawText(self.rect(), Qt.AlignCenter, "No image loaded")
             painter.end()
             return
 
-        # Split into two halves
-        gap = 6
-        half_w = (self.width() - gap) // 2
-        full_h = self.height() - 28  # leave room for labels
+        avail_w = self.width() - 2 * self._margin
+        avail_h = self.height() - 2 * self._margin
+        scale = min(avail_w / self._img_w, avail_h / self._img_h)
+        ox = self._margin + (avail_w - self._img_w * scale) / 2
+        oy = self._margin + (avail_h - self._img_h * scale) / 2
 
-        label_y = full_h + 18
+        # Dim the background image so edges pop
+        painter.setOpacity(0.3)
+        dst_rect = self.rect().adjusted(int(ox), int(oy), -int(ox), -int(oy))
+        # Keep aspect ratio
+        scaled_pix = self._pixmap.scaled(
+            int(self._img_w * scale),
+            int(self._img_h * scale),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        painter.drawPixmap(int(ox), int(oy), scaled_pix)
+        painter.setOpacity(1.0)
 
-        # --- Left: original ---
-        if self._original:
-            pix = QPixmap.fromImage(self._original)
-            scaled = pix.scaled(half_w, full_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            ox = (half_w - scaled.width()) // 2
-            oy = (full_h - scaled.height()) // 2
-            painter.drawPixmap(ox, oy, scaled)
+        # Draw polylines
+        painter.setRenderHint(QPainter.Antialiasing)
+        n_poly = len(self._polylines)
 
+        def to_canvas(px, py):
+            return int(ox + px * scale), int(oy + py * scale)
+
+        for idx, poly in enumerate(self._polylines):
+            hue = int(120 + 240 * idx / max(n_poly, 1)) % 360
+            color = QColor.fromHsl(hue, 240, 150)
+            painter.setPen(QPen(color, 1.5))
+            for i in range(len(poly) - 1):
+                x1, y1 = to_canvas(*poly[i])
+                x2, y2 = to_canvas(*poly[i + 1])
+                painter.drawLine(x1, y1, x2, y2)
+
+        # Info
         painter.setPen(QColor(160, 170, 200))
         painter.setFont(QFont("Arial", 8))
-        painter.drawText(0, label_y, half_w, 16, Qt.AlignCenter, "Original")
-
-        # --- Right: contour overlay or edge map ---
-        right_x = half_w + gap
-        right_img = self._contour_img if self._contour_img else self._edges
-        if right_img:
-            pix2 = QPixmap.fromImage(right_img)
-            scaled2 = pix2.scaled(half_w, full_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            ox2 = right_x + (half_w - scaled2.width()) // 2
-            oy2 = (full_h - scaled2.height()) // 2
-            painter.drawPixmap(ox2, oy2, scaled2)
-
-        painter.setPen(QColor(160, 170, 200))
-        painter.drawText(right_x, label_y, half_w, 16, Qt.AlignCenter, "Detected Contours")
-
+        painter.drawText(
+            self._margin, self._margin - 4,
+            f"Image: {self._img_w}x{self._img_h} px  |  "
+            f"Paths: {n_poly}"
+        )
         painter.end()
 
 
@@ -197,9 +173,13 @@ class ImageImportDialog(QDialog):
     objects where:
     - Travel between contours uses ``power=0`` at ``z_safe``
     - Cutting along contour edges uses ``power=255`` at ``z_surface``
+    
+    Supports:
+      - Job Origin selection (Bottom-Left or Center)
+      - Material Calibration via 2-point affine transform
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, worker=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Import Image — Edge Tracing")
         self.setModal(True)
@@ -209,6 +189,10 @@ class ImageImportDialog(QDialog):
         self._img_bgr: Optional[np.ndarray] = None
         self._edge_map: Optional[np.ndarray] = None
         self._polylines: List[List[Tuple[float, float]]] = []
+        
+        self._worker = worker
+        self._calib_machine_p1: Optional[Tuple[float, float]] = None
+        self._calib_machine_p2: Optional[Tuple[float, float]] = None
 
         self._build_ui()
 
@@ -227,7 +211,7 @@ class ImageImportDialog(QDialog):
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lv.addWidget(self.canvas, 1)
 
-        self.info_lbl = QLabel("Select a .png or .jpg image to preview")
+        self.info_lbl = QLabel("Select an image to trace")
         self.info_lbl.setAlignment(Qt.AlignCenter)
         self.info_lbl.setStyleSheet("color: #888; font-size: 11px;")
         lv.addWidget(self.info_lbl)
@@ -247,132 +231,110 @@ class ImageImportDialog(QDialog):
         self.file_lbl.setWordWrap(True)
         self.file_lbl.setStyleSheet("color: #aaa;")
         fv.addWidget(self.file_lbl)
-        self.browse_btn = QPushButton("📂  Browse…")
+        self.browse_btn = QPushButton("📂  Browse Image…")
         self.browse_btn.setMinimumHeight(36)
         self.browse_btn.clicked.connect(self._browse_file)
         fv.addWidget(self.browse_btn)
         rv.addWidget(file_box)
 
-        # --- Edge detection parameters ---
-        edge_box = QGroupBox("Edge Detection (Canny)")
-        ef = QFormLayout(edge_box)
+        # --- Canny Settings ---
+        edge_box = QGroupBox("Edge Detection Tuning")
+        ev = QVBoxLayout(edge_box)
 
-        self.canny_lo_slider = QSlider(Qt.Horizontal)
-        self.canny_lo_slider.setRange(1, 255)
-        self.canny_lo_slider.setValue(50)
-        self.canny_lo_lbl = QLabel("50")
-        lo_row = QHBoxLayout()
-        lo_row.addWidget(self.canny_lo_slider, 1)
-        lo_row.addWidget(self.canny_lo_lbl)
-        ef.addRow("Threshold Low:", lo_row)
+        t1_layout = QHBoxLayout()
+        t1_layout.addWidget(QLabel("Canny T1:"))
+        self.t1_slider = QSlider(Qt.Horizontal)
+        self.t1_slider.setRange(0, 500)
+        self.t1_slider.setValue(100)
+        self.t1_slider.valueChanged.connect(self._recalc_edges)
+        t1_layout.addWidget(self.t1_slider)
+        ev.addLayout(t1_layout)
 
-        self.canny_hi_slider = QSlider(Qt.Horizontal)
-        self.canny_hi_slider.setRange(1, 255)
-        self.canny_hi_slider.setValue(150)
-        self.canny_hi_lbl = QLabel("150")
-        hi_row = QHBoxLayout()
-        hi_row.addWidget(self.canny_hi_slider, 1)
-        hi_row.addWidget(self.canny_hi_lbl)
-        ef.addRow("Threshold High:", hi_row)
+        t2_layout = QHBoxLayout()
+        t2_layout.addWidget(QLabel("Canny T2:"))
+        self.t2_slider = QSlider(Qt.Horizontal)
+        self.t2_slider.setRange(0, 500)
+        self.t2_slider.setValue(200)
+        self.t2_slider.valueChanged.connect(self._recalc_edges)
+        t2_layout.addWidget(self.t2_slider)
+        ev.addLayout(t2_layout)
 
-        self.blur_spin = QSpinBox()
-        self.blur_spin.setRange(0, 31)
-        self.blur_spin.setValue(5)
-        self.blur_spin.setSingleStep(2)
-        self.blur_spin.setToolTip("Gaussian blur kernel size (odd number, 0 = off).")
-        ef.addRow("Blur Kernel:", self.blur_spin)
-
-        self.dilate_spin = QSpinBox()
-        self.dilate_spin.setRange(0, 10)
-        self.dilate_spin.setValue(0)
-        self.dilate_spin.setToolTip("Dilation iterations to thicken edges / close gaps.")
-        ef.addRow("Dilate Iterations:", self.dilate_spin)
-
-        self.min_length_spin = QSpinBox()
-        self.min_length_spin.setRange(1, 10000)
-        self.min_length_spin.setValue(20)
-        self.min_length_spin.setToolTip("Minimum contour arc-length in pixels to keep.")
-        ef.addRow("Min Contour Length:", self.min_length_spin)
-
-        self.simplify_spin = QDoubleSpinBox()
-        self.simplify_spin.setRange(0.0, 0.1)
-        self.simplify_spin.setDecimals(4)
-        self.simplify_spin.setValue(0.002)
-        self.simplify_spin.setSingleStep(0.0005)
-        self.simplify_spin.setToolTip(
-            "Douglas-Peucker epsilon factor.\n"
-            "Lower = more detail, higher = fewer points."
-        )
-        ef.addRow("Simplify Factor:", self.simplify_spin)
-
-        self.invert_cb = QCheckBox("Invert edges")
-        self.invert_cb.setToolTip("Invert the edge map before finding contours.")
-        ef.addRow(self.invert_cb)
-
-        self.redetect_btn = QPushButton("🔄  Re-detect Edges")
-        self.redetect_btn.setMinimumHeight(32)
-        self.redetect_btn.setEnabled(False)
-        self.redetect_btn.clicked.connect(self._redetect)
-        ef.addRow(self.redetect_btn)
+        self.invert_cb = QCheckBox("Invert Colors before trace")
+        self.invert_cb.stateChanged.connect(self._recalc_edges)
+        ev.addWidget(self.invert_cb)
 
         rv.addWidget(edge_box)
 
-        # Connect sliders to live labels
-        self.canny_lo_slider.valueChanged.connect(
-            lambda v: self.canny_lo_lbl.setText(str(v))
-        )
-        self.canny_hi_slider.valueChanged.connect(
-            lambda v: self.canny_hi_lbl.setText(str(v))
-        )
-
-        # --- Physical dimensions ---
-        dim_box = QGroupBox("Physical Dimensions")
-        df = QFormLayout(dim_box)
+        # --- Physical Parameters ---
+        param_box = QGroupBox("Physical Export Parameters")
+        pf = QFormLayout(param_box)
 
         self.target_width_spin = QDoubleSpinBox()
-        self.target_width_spin.setRange(0.1, 99999.0)
-        self.target_width_spin.setDecimals(2)
-        self.target_width_spin.setValue(50.0)
+        self.target_width_spin.setRange(1.0, 5000.0)
+        self.target_width_spin.setDecimals(1)
+        self.target_width_spin.setValue(100.0)
         self.target_width_spin.setSuffix(" mm")
         self.target_width_spin.setToolTip(
-            "How wide the final physical output should be.\n"
-            "The pixel-to-mm scale is computed automatically\n"
-            "from the contours' bounding box."
+            "Width of the image in real-world machine space.\n"
+            "The height will be scaled proportionally."
         )
-        df.addRow("Target Width:", self.target_width_spin)
+        pf.addRow("Target Width:", self.target_width_spin)
+
+        # --- Job Origin selector ---
+        self.origin_combo = QComboBox()
+        self.origin_combo.addItems(["Bottom-Left (Default)", "Center of Bounding Box"])
+        self.origin_combo.setToolTip(
+            "Bottom-Left: coordinates start from the bottom-left corner.\n"
+            "Center: the machine's current position = design center."
+        )
+        pf.addRow("Job Origin:", self.origin_combo)
 
         self.z_surface_spin = QDoubleSpinBox()
         self.z_surface_spin.setRange(-9999.0, 9999.0)
         self.z_surface_spin.setDecimals(3)
         self.z_surface_spin.setValue(0.0)
         self.z_surface_spin.setSuffix(" mm")
-        self.z_surface_spin.setToolTip("Z depth for engraving / cutting moves.")
-        df.addRow("Z-Surface Depth:", self.z_surface_spin)
+        pf.addRow("Z-Surface Depth:", self.z_surface_spin)
 
         self.z_safe_spin = QDoubleSpinBox()
         self.z_safe_spin.setRange(-9999.0, 9999.0)
         self.z_safe_spin.setDecimals(3)
         self.z_safe_spin.setValue(-2.0)
         self.z_safe_spin.setSuffix(" mm")
-        self.z_safe_spin.setToolTip("Z height for rapid travel between contours.")
-        df.addRow("Z-Safe:", self.z_safe_spin)
+        pf.addRow("Z-Safe Height:", self.z_safe_spin)
 
         self.feed_spin = QSpinBox()
         self.feed_spin.setRange(1, 50000)
-        self.feed_spin.setValue(1000)
+        self.feed_spin.setValue(1500)
         self.feed_spin.setSuffix(" mm/min")
-        self.feed_spin.setToolTip("Feed rate for cutting / engraving moves.")
-        df.addRow("Feed Rate:", self.feed_spin)
+        pf.addRow("Feed Rate:", self.feed_spin)
 
-        rv.addWidget(dim_box)
+        rv.addWidget(param_box)
 
         # --- Status ---
         self.status_lbl = QLabel("")
         self.status_lbl.setWordWrap(True)
         self.status_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         rv.addWidget(self.status_lbl)
+        
+        # --- Calibration status ---
+        self.calib_status_lbl = QLabel("")
+        self.calib_status_lbl.setWordWrap(True)
+        self.calib_status_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        rv.addWidget(self.calib_status_lbl)
 
         rv.addStretch(1)
+
+        # --- Calibrate Material button (optional) ---
+        self.calibrate_btn = QPushButton("🔧  Calibrate Material (Optional)")
+        self.calibrate_btn.setMinimumHeight(36)
+        self.calibrate_btn.setEnabled(False)
+        self.calibrate_btn.setToolTip(
+            "Open the 2-Point Calibration dialog to compensate\n"
+            "for crooked material placement on the CNC bed."
+        )
+        self.calibrate_btn.clicked.connect(self._open_calibration)
+        rv.addWidget(self.calibrate_btn)
 
         # --- Buttons ---
         self.confirm_btn = QPushButton("✔  Import Waypoints")
@@ -393,142 +355,173 @@ class ImageImportDialog(QDialog):
     def _browse_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Image File",
+            "Select Image",
             "",
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.tiff);;All Files (*)",
+            "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)",
         )
         if not path:
             return
 
-        self._filepath = path
-        self.file_lbl.setText(Path(path).name)
-        self.file_lbl.setStyleSheet("color: #8ecfff; font-weight: bold;")
-
-        self._load_image(path)
-
-    def _load_image(self, path: str):
-        """Load an image file and run edge detection."""
         img = cv2.imread(path)
         if img is None:
-            QMessageBox.critical(
-                self, "Load Error",
-                f"Failed to load image:\n{path}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to open image:\n{path}")
             return
 
+        self._filepath = path
         self._img_bgr = img
-        self.redetect_btn.setEnabled(True)
-        self._run_detection()
+        self.file_lbl.setText(Path(path).name)
+        self.file_lbl.setStyleSheet("color: #8ecfff; font-weight: bold;")
+        self.canvas.set_image(img)
 
-    def _redetect(self):
-        """Re-run edge detection with updated parameters."""
+        self._calib_machine_p1 = None
+        self._calib_machine_p2 = None
+        self.calib_status_lbl.setText("")
+
+        self._recalc_edges()
+
+    def _recalc_edges(self):
         if self._img_bgr is None:
             return
-        self._run_detection()
 
-    def _run_detection(self):
-        """Apply Canny edge detection and find contours."""
-        img = self._img_bgr
-        h, w = img.shape[:2]
+        t1 = self.t1_slider.value()
+        t2 = self.t2_slider.value()
+        inv = self.invert_cb.isChecked()
 
-        canny_lo = self.canny_lo_slider.value()
-        canny_hi = self.canny_hi_slider.value()
-        blur_k = self.blur_spin.value()
-        dilate_iter = self.dilate_spin.value()
-        min_length = self.min_length_spin.value()
-        eps_factor = self.simplify_spin.value()
+        edges, polys = _trace_edges(self._img_bgr, t1, t2, invert=inv)
+        self._edge_map = edges
+        self._polylines = polys
 
-        # Edge detection
-        self._edge_map = detect_edges(img, canny_lo, canny_hi, blur_k, dilate_iter)
+        self.canvas.set_polylines(polys)
 
-        edge_for_contours = self._edge_map.copy()
-        if self.invert_cb.isChecked():
-            edge_for_contours = cv2.bitwise_not(edge_for_contours)
-
-        # Find contours
-        self._polylines = find_contour_polylines(
-            edge_for_contours,
-            min_length=min_length,
-            epsilon_factor=eps_factor,
-        )
-
-        # Build contour visualisation on a dark background
-        contour_vis = np.zeros((h, w, 3), dtype=np.uint8)
-        contour_vis[:] = (24, 24, 30)  # dark background (BGR)
-
-        n_poly = len(self._polylines)
-        for idx, poly in enumerate(self._polylines):
-            # Varying hue for each contour
-            hue = int(120 + 140 * idx / max(n_poly, 1)) % 180
-            color_hsv = np.uint8([[[hue, 220, 220]]])
-            color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)[0][0]
-            color = (int(color_bgr[0]), int(color_bgr[1]), int(color_bgr[2]))
-
-            pts = np.array(poly, dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(contour_vis, [pts], isClosed=False, color=color, thickness=1)
-
-        # Update preview
-        self.canvas.set_images(img, self._edge_map, contour_vis)
-
-        if not self._polylines:
-            self.status_lbl.setText(
-                "⚠  No contours found. Try adjusting the Canny thresholds."
-            )
+        n_pts = sum(len(p) for p in polys)
+        if not polys:
+            self.status_lbl.setText("⚠  No edges found. Adjust Canny sliders.")
             self.status_lbl.setStyleSheet("color: #ffaa44; font-size: 11px;")
             self.confirm_btn.setEnabled(False)
+            self.calibrate_btn.setEnabled(False)
+        else:
+            self.status_lbl.setText(f"✔  Found {len(polys)} path(s), {n_pts} vertices.")
+            self.status_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
+            self.confirm_btn.setEnabled(True)
+            self.calibrate_btn.setEnabled(self._worker is not None)
+
+    def _get_working_polylines(self) -> List[List[Tuple[float, float]]]:
+        """Convert raw pixels into scaled (mm), Y-flipped, and optionally center-shifted coords."""
+        if not self._polylines:
+            return []
+
+        # 1. Bounding box in raw pixel space to determine scale
+        px_xmin, px_ymin, px_xmax, px_ymax = compute_bounding_box(self._polylines)
+        px_width = (px_xmax - px_xmin) or 1.0
+
+        target_width = self.target_width_spin.value()
+        scale = target_width / px_width  # px -> mm
+
+        # 2. Convert to mm space and flip Y (so Y-up = positive)
+        # We anchor (px_xmin, px_ymax) to (0,0) so the image sits in the top-right quadrant
+        scaled_polylines = []
+        for poly in self._polylines:
+            scaled_poly = []
+            for px, py in poly:
+                mm_x = (px - px_xmin) * scale
+                mm_y = (px_ymax - py) * scale  # flip Y
+                scaled_poly.append((mm_x, mm_y))
+            scaled_polylines.append(scaled_poly)
+
+        # 3. Shift origin if requested
+        if self.origin_combo.currentIndex() == 1:  # Center
+            return center_shift_polylines(scaled_polylines)
+        
+        return scaled_polylines
+
+    def _open_calibration(self):
+        """Open the 2-Point Calibration dialog."""
+        if not self._polylines:
+            QMessageBox.warning(self, "No Data", "Load an image first.")
+            return
+        if self._worker is None:
+            QMessageBox.warning(
+                self, "Not Connected",
+                "Machine is not connected.\n"
+                "Connect to the CNC first to use calibration."
+            )
             return
 
-        total_verts = sum(len(p) for p in self._polylines)
-        self.confirm_btn.setEnabled(True)
-        self.status_lbl.setText(
-            f"✔  {len(self._polylines)} contour(s), "
-            f"{total_verts} vertices total."
-        )
-        self.status_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
+        working_polylines = self._get_working_polylines()
+        xmin, ymin, xmax, ymax = compute_bounding_box(working_polylines)
+        
+        design_p1 = (xmin, ymin)
+        design_p2 = (xmax, ymax)
 
-        # Update info label
-        self.info_lbl.setText(
-            f"{Path(self._filepath).name}  —  "
-            f"{w} × {h} px  |  "
-            f"{len(self._polylines)} contours detected"
-        )
-        self.info_lbl.setStyleSheet("color: #bbc; font-size: 11px;")
+        from ops.calibration_dialog import TwoPointCalibDialog
+        dlg = TwoPointCalibDialog(design_p1, design_p2, self._worker, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        calib = dlg.get_calibration()
+        if calib:
+            self._calib_machine_p1, self._calib_machine_p2 = calib
+            import math as _math
+            result = compute_affine_2point(
+                design_p1, design_p2,
+                self._calib_machine_p1, self._calib_machine_p2,
+            )
+            if result:
+                angle_deg = _math.degrees(result.rotation)
+                self.calib_status_lbl.setText(
+                    f"✔  Calibration set — "
+                    f"Rotation: {angle_deg:.2f}°  Scale: {result.scale:.4f}x"
+                )
+                self.calib_status_lbl.setStyleSheet(
+                    "color: #88ff88; font-size: 11px;"
+                )
 
     # --------------------------------------------------------------- output --
 
     def get_waypoints(self) -> List[Point]:
         """
-        Convert the detected contour polylines into a flat list of ``Point``
-        objects using the current UI parameter values.
+        Convert the image contours into a flat list of CNC ``Point`` objects.
 
-        Behaviour:
-        - **Along a contour**: each vertex becomes a waypoint at ``z_surface``
-          with ``power=255`` (laser on / tool engaged).
-        - **Between contours**: a *travel* waypoint is inserted for the first
-          point of each new contour with ``power=0`` and ``z=z_safe`` so the
-          tool lifts before rapid-traveling to the next shape.
+        **Transform order:**
+        1. Calculate pixel bounding box and scaling factor
+        2. Convert to mm and flip Y to match CNC coords
+        3. If "Center" origin, shift so center → (0, 0)
+        4. If calibration was performed, apply rotation + translation
         """
         if not self._polylines:
             return []
-
-        # --- Compute pixel → mm scale from the contours' bounding box ---
-        all_x = [pt[0] for poly in self._polylines for pt in poly]
-        all_y = [pt[1] for poly in self._polylines for pt in poly]
-        px_xmin, px_xmax = min(all_x), max(all_x)
-        px_ymin, px_ymax = min(all_y), max(all_y)
-        px_width = (px_xmax - px_xmin) or 1.0
-
-        target_width = self.target_width_spin.value()
-        scale = target_width / px_width  # px → mm
 
         z_surface = self.z_surface_spin.value()
         z_safe = self.z_safe_spin.value()
         feed = self.feed_spin.value()
 
+        # Step 1, 2, 3: Scale (and flip Y) and optional Center Shift
+        working_polylines = self._get_working_polylines()
+
+        # Step 4: Apply affine transform if calibration was set
+        if self._calib_machine_p1 and self._calib_machine_p2:
+            xmin, ymin, xmax, ymax = compute_bounding_box(working_polylines)
+            design_p1 = (xmin, ymin)
+            design_p2 = (xmax, ymax)
+
+            result = compute_affine_2point(
+                design_p1, design_p2,
+                self._calib_machine_p1, self._calib_machine_p2,
+            )
+            if result:
+                working_polylines = apply_affine_to_polylines(
+                    working_polylines,
+                    anchor=design_p1,
+                    cos_r=result.cos_r,
+                    sin_r=result.sin_r,
+                    translation=self._calib_machine_p1,
+                )
+
+        # --- Generate Point objects ---
         points: List[Point] = []
         wp_idx = 1
 
-        for poly_idx, poly in enumerate(self._polylines):
+        for poly_idx, poly in enumerate(working_polylines):
             # Remove duplicate consecutive vertices
             cleaned: List[Tuple[float, float]] = [poly[0]]
             for pt in poly[1:]:
@@ -538,34 +531,29 @@ class ImageImportDialog(QDialog):
             if len(cleaned) < 2:
                 continue
 
-            for vert_idx, (px, py) in enumerate(cleaned):
-                # Convert pixel coords to mm (Y flipped so Y-up = positive)
-                mm_x = round((px - px_xmin) * scale, 3)
-                mm_y = round((px_ymax - py) * scale, 3)  # flip Y
-
+            for vert_idx, (vx, vy) in enumerate(cleaned):
                 if vert_idx == 0:
-                    # Travel point — move to the start of a new contour
-                    # with laser off / tool raised
+                    # Rapid move to start of contour (power 0, z_safe)
                     points.append(Point(
-                        name=f"T{wp_idx}",
-                        x=mm_x,
-                        y=mm_y,
+                        name=f"C{wp_idx}",
+                        x=round(vx, 3),
+                        y=round(vy, 3),
                         z=round(z_safe, 3),
                         feed_to_next=feed,
                         z_safe=z_safe,
-                        power=0,
+                        power=0
                     ))
                     wp_idx += 1
-
-                # Cutting / engraving point along the contour
+                
+                # Plunge / cut move (power 255, z_surface)
                 points.append(Point(
-                    name=f"E{wp_idx}",
-                    x=mm_x,
-                    y=mm_y,
+                    name=f"C{wp_idx}",
+                    x=round(vx, 3),
+                    y=round(vy, 3),
                     z=round(z_surface, 3),
                     feed_to_next=feed,
                     z_safe=z_safe,
-                    power=255,
+                    power=255
                 ))
                 wp_idx += 1
 

@@ -15,6 +15,10 @@ from PySide6.QtWidgets import (
 )
 
 from core.models import Point
+from core.transform import (
+    compute_bounding_box, center_shift_polylines,
+    compute_affine_2point, apply_affine_to_polylines,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +273,13 @@ class VectorImportDialog(QDialog):
     The user selects a file, configures scale / depth / feed parameters,
     and the dialog converts the vector paths into a list of ``Point``
     objects that can be appended to the main waypoint table.
+
+    Supports:
+      - **Job Origin** selection (Bottom-Left or Center)
+      - **Material Calibration** via 2-point affine transform
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, worker=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Import Vector File (SVG / DXF)")
         self.setModal(True)
@@ -279,6 +287,11 @@ class VectorImportDialog(QDialog):
 
         self._filepath: Optional[str] = None
         self._polylines: List[List[Tuple[float, float]]] = []
+        self._worker = worker   # GrblWorker (optional — needed for calibration)
+
+        # Calibration state (set via TwoPointCalibDialog)
+        self._calib_machine_p1: Optional[Tuple[float, float]] = None
+        self._calib_machine_p2: Optional[Tuple[float, float]] = None
 
         self._build_ui()
 
@@ -338,6 +351,15 @@ class VectorImportDialog(QDialog):
         )
         pf.addRow("Scale Factor:", self.scale_spin)
 
+        # --- Job Origin selector ---
+        self.origin_combo = QComboBox()
+        self.origin_combo.addItems(["Bottom-Left (Default)", "Center of Bounding Box"])
+        self.origin_combo.setToolTip(
+            "Bottom-Left: coordinates start from the bottom-left corner.\n"
+            "Center: the machine's current position = design center."
+        )
+        pf.addRow("Job Origin:", self.origin_combo)
+
         self.z_surface_spin = QDoubleSpinBox()
         self.z_surface_spin.setRange(-9999.0, 9999.0)
         self.z_surface_spin.setDecimals(3)
@@ -387,7 +409,24 @@ class VectorImportDialog(QDialog):
         self.status_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         rv.addWidget(self.status_lbl)
 
+        # --- Calibration status ---
+        self.calib_status_lbl = QLabel("")
+        self.calib_status_lbl.setWordWrap(True)
+        self.calib_status_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        rv.addWidget(self.calib_status_lbl)
+
         rv.addStretch(1)
+
+        # --- Calibrate Material button (optional) ---
+        self.calibrate_btn = QPushButton("🔧  Calibrate Material (Optional)")
+        self.calibrate_btn.setMinimumHeight(36)
+        self.calibrate_btn.setEnabled(False)
+        self.calibrate_btn.setToolTip(
+            "Open the 2-Point Calibration dialog to compensate\n"
+            "for crooked material placement on the CNC bed."
+        )
+        self.calibrate_btn.clicked.connect(self._open_calibration)
+        rv.addWidget(self.calibrate_btn)
 
         # --- Buttons ---
         self.confirm_btn = QPushButton("✔  Import Waypoints")
@@ -446,6 +485,7 @@ class VectorImportDialog(QDialog):
             self._polylines = []
             self.canvas.set_polylines([])
             self.confirm_btn.setEnabled(False)
+            self.calibrate_btn.setEnabled(False)
             return
 
         if not self._polylines:
@@ -453,10 +493,13 @@ class VectorImportDialog(QDialog):
             self.status_lbl.setStyleSheet("color: #ffaa44; font-size: 11px;")
             self.canvas.set_polylines([])
             self.confirm_btn.setEnabled(False)
+            self.calibrate_btn.setEnabled(False)
             return
 
         self.canvas.set_polylines(self._polylines)
         self.confirm_btn.setEnabled(True)
+        # Enable calibration button only if the worker is connected
+        self.calibrate_btn.setEnabled(self._worker is not None)
 
         total_vertices = sum(len(p) for p in self._polylines)
         self.status_lbl.setText(
@@ -464,6 +507,11 @@ class VectorImportDialog(QDialog):
             f"{total_vertices} vertices total."
         )
         self.status_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
+
+        # Reset calibration when file changes
+        self._calib_machine_p1 = None
+        self._calib_machine_p2 = None
+        self.calib_status_lbl.setText("")
 
         # Update info label with bounding-box dimensions
         all_x = [pt[0] for poly in self._polylines for pt in poly]
@@ -478,12 +526,80 @@ class VectorImportDialog(QDialog):
         )
         self.info_lbl.setStyleSheet("color: #bbc; font-size: 11px;")
 
+    def _get_working_polylines(self) -> List[List[Tuple[float, float]]]:
+        """Convert raw polylines into scaled and (optionally) center-shifted coords."""
+        if not self._polylines:
+            return []
+
+        scale = self.scale_spin.value()
+        center_origin = self.origin_combo.currentIndex() == 1
+
+        # Scale raw polylines
+        scaled_polylines: List[List[Tuple[float, float]]] = [
+            [(x * scale, y * scale) for x, y in poly]
+            for poly in self._polylines
+        ]
+
+        # Shift origin if requested
+        if center_origin:
+            return center_shift_polylines(scaled_polylines)
+        
+        return scaled_polylines
+
+    def _open_calibration(self):
+        """Open the 2-Point Calibration dialog."""
+        if not self._polylines:
+            QMessageBox.warning(self, "No Data", "Load a vector file first.")
+            return
+        if self._worker is None:
+            QMessageBox.warning(
+                self, "Not Connected",
+                "Machine is not connected.\n"
+                "Connect to the CNC first to use calibration."
+            )
+            return
+
+        working_polylines = self._get_working_polylines()
+        xmin, ymin, xmax, ymax = compute_bounding_box(working_polylines)
+        
+        design_p1 = (xmin, ymin)
+        design_p2 = (xmax, ymax)
+
+        from ops.calibration_dialog import TwoPointCalibDialog
+        dlg = TwoPointCalibDialog(design_p1, design_p2, self._worker, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        calib = dlg.get_calibration()
+        if calib:
+            self._calib_machine_p1, self._calib_machine_p2 = calib
+            import math as _math
+            result = compute_affine_2point(
+                design_p1, design_p2,
+                self._calib_machine_p1, self._calib_machine_p2,
+            )
+            if result:
+                angle_deg = _math.degrees(result.rotation)
+                self.calib_status_lbl.setText(
+                    f"✔  Calibration set — "
+                    f"Rotation: {angle_deg:.2f}°  Scale: {result.scale:.4f}x"
+                )
+                self.calib_status_lbl.setStyleSheet(
+                    "color: #88ff88; font-size: 11px;"
+                )
+
     # --------------------------------------------------------------- output --
 
     def get_waypoints(self) -> List[Point]:
         """
         Convert the parsed vector polylines into a flat list of ``Point``
         objects using the current UI parameter values.
+
+        **Transform order:**
+        1. Calculate bounding box of raw imported paths
+        2. Apply user scale
+        3. If "Center" origin, shift so center → (0, 0)
+        4. If calibration was performed, apply rotation + translation
 
         Each continuous polyline becomes a series of consecutive waypoints.
         Between polylines, the tool is assumed to rapid-travel at Z-Safe
@@ -493,15 +609,37 @@ class VectorImportDialog(QDialog):
         if not self._polylines:
             return []
 
-        scale = self.scale_spin.value()
         z_surface = self.z_surface_spin.value()
         z_safe = self.z_safe_spin.value()
         feed = self.feed_spin.value()
 
+        # Step 1, 2, 3: Scale and optional Center Shift
+        working_polylines = self._get_working_polylines()
+
+        # Step 4: Apply affine transform if calibration was set
+        if self._calib_machine_p1 and self._calib_machine_p2:
+            xmin, ymin, xmax, ymax = compute_bounding_box(working_polylines)
+            design_p1 = (xmin, ymin)
+            design_p2 = (xmax, ymax)
+
+            result = compute_affine_2point(
+                design_p1, design_p2,
+                self._calib_machine_p1, self._calib_machine_p2,
+            )
+            if result:
+                working_polylines = apply_affine_to_polylines(
+                    working_polylines,
+                    anchor=design_p1,
+                    cos_r=result.cos_r,
+                    sin_r=result.sin_r,
+                    translation=self._calib_machine_p1,
+                )
+
+        # --- Generate Point objects ---
         points: List[Point] = []
         wp_idx = 1
 
-        for poly_idx, poly in enumerate(self._polylines):
+        for poly_idx, poly in enumerate(working_polylines):
             # Remove duplicate consecutive vertices
             cleaned: List[Tuple[float, float]] = [poly[0]]
             for pt in poly[1:]:
@@ -511,8 +649,8 @@ class VectorImportDialog(QDialog):
             for vert_idx, (vx, vy) in enumerate(cleaned):
                 points.append(Point(
                     name=f"V{wp_idx}",
-                    x=round(vx * scale, 3),
-                    y=round(vy * scale, 3),
+                    x=round(vx, 3),
+                    y=round(vy, 3),
                     z=round(z_surface, 3),
                     feed_to_next=feed,
                     z_safe=z_safe,
