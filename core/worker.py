@@ -41,12 +41,32 @@ class GrblWorker(QThread):
         self._stream_total = 0
         self._stream_done = 0
 
+        # --- Simulator ---
+        self._is_sim = False
+        self._sim_x = 0.0
+        self._sim_y = 0.0
+        self._sim_z = 0.0
+        self._sim_queue = deque()
+
     def set_poll_interval_ms(self, ms: int):
         self.poll_interval_ms = max(30, int(ms))
 
     def connect_serial(self, port: str, baud: int = 115200):
         self.port = port
         self.baud = baud
+
+        # --- Simulator bypass ---
+        if port == "SIMULATOR":
+            self._is_sim = True
+            self._sim_x = 0.0
+            self._sim_y = 0.0
+            self._sim_z = 0.0
+            self._sim_queue.clear()
+            self.ser = None
+            self.connected.emit(True)
+            self.log.emit("Connected to SIMULATOR")
+            return True
+
         try:
             self.ser = serial.Serial(port, baudrate=baud, timeout=0.1, write_timeout=0.5)
             time.sleep(0.25)
@@ -69,6 +89,15 @@ class GrblWorker(QThread):
     def disconnect_serial(self):
         self._running = False
         self._stop_stream_internal("idle")
+
+        # --- Simulator bypass ---
+        if self._is_sim:
+            self._is_sim = False
+            self._sim_queue.clear()
+            self.connected.emit(False)
+            self.log.emit("Disconnected from SIMULATOR")
+            return
+
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
@@ -87,6 +116,14 @@ class GrblWorker(QThread):
             self.log.emit(f"Write error: {e}")
 
     def send_line(self, line: str):
+        # --- Simulator bypass ---
+        if self._is_sim:
+            stripped = line.strip()
+            self.log.emit(f"> {stripped}")
+            self._sim_parse_and_update(stripped)
+            self._sim_queue.append(stripped)
+            return
+
         if not self.ser or not self.ser.is_open:
             return
         cmd = (line.strip() + "\n").encode("ascii", errors="ignore")
@@ -95,6 +132,23 @@ class GrblWorker(QThread):
             self.log.emit(f"> {line.strip()}")
         except Exception as e:
             self.log.emit(f"Write error: {e}")
+
+    def _sim_parse_and_update(self, line: str):
+        """Parse a G-code line and update simulated position (absolute coords)."""
+        # Handle both normal G-code (G0/G1 X.. Y.. Z..) and jog ($J=...)
+        text = line
+        if text.upper().startswith("$J="):
+            text = text[3:]  # strip '$J=' prefix
+
+        m_x = re.search(r'[Xx]([\-+]?\d*\.?\d+)', text)
+        m_y = re.search(r'[Yy]([\-+]?\d*\.?\d+)', text)
+        m_z = re.search(r'[Zz]([\-+]?\d*\.?\d+)', text)
+        if m_x:
+            self._sim_x = float(m_x.group(1))
+        if m_y:
+            self._sim_y = float(m_y.group(1))
+        if m_z:
+            self._sim_z = float(m_z.group(1))
 
     def send_reset(self):
         self._write_raw(b"\x18")
@@ -124,7 +178,7 @@ class GrblWorker(QThread):
 
     # ---- Streaming ----
     def start_stream(self, gcode_lines: list[str]):
-        if not self.ser or not self.ser.is_open:
+        if not self._is_sim and (not self.ser or not self.ser.is_open):
             self.stream_state.emit("error")
             self.log.emit("Stream error: not connected")
             return
@@ -210,6 +264,12 @@ class GrblWorker(QThread):
     def run(self):
         self._running = True
         while self._running:
+            # --- Simulator bypass ---
+            if self._is_sim:
+                self._run_sim_tick()
+                time.sleep(self.poll_interval_ms / 1000.0)
+                continue
+
             if not self.ser or not self.ser.is_open:
                 time.sleep(0.1)
                 continue
@@ -289,6 +349,39 @@ class GrblWorker(QThread):
                 self._maybe_send_next_stream_line()
 
             time.sleep(self.poll_interval_ms / 1000.0)
+
+    def _run_sim_tick(self):
+        """One iteration of the simulator loop: emit fake status and process queued commands."""
+        # Determine state
+        sim_state = "Run" if (self._streaming and not self._stream_paused) else "Idle"
+        raw = f"<{sim_state}|WPos:{self._sim_x:.3f},{self._sim_y:.3f},{self._sim_z:.3f}|MPos:{self._sim_x:.3f},{self._sim_y:.3f},{self._sim_z:.3f}>"
+        wpos = (self._sim_x, self._sim_y, self._sim_z)
+        mpos = (self._sim_x, self._sim_y, self._sim_z)
+        payload = {"state": sim_state, "wpos": wpos, "mpos": mpos, "pn": "", "raw": raw}
+        self._last_status = payload
+        self.status.emit(payload)
+
+        # Process queued commands (simulate "ok" responses)
+        if self._sim_queue:
+            self._sim_queue.popleft()
+            time.sleep(0.05)  # simulate processing delay
+            self.log.emit("ok")
+            if self._streaming:
+                self._mutex.lock()
+                try:
+                    self._awaiting_ok = False
+                    ack_idx = self._current_stream_idx
+                    self._stream_done += 1
+                    done, total = self._stream_done, self._stream_total
+                finally:
+                    self._mutex.unlock()
+                self.line_ack.emit(ack_idx)
+                self.stream_progress.emit(done, total)
+                self._maybe_send_next_stream_line()
+
+        # Also try to push the next stream line if we're streaming
+        if self._streaming and not self._stream_paused:
+            self._maybe_send_next_stream_line()
 
     def last_wpos(self):
         return self._last_status["wpos"] if self._last_status else None

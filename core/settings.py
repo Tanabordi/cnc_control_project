@@ -18,6 +18,7 @@ class AppSettings:
     last_port: str = ""
     safe_z: float = 5.0
     theme: str = "dark"
+    language: str = "en"
 
 
 def load_settings() -> AppSettings:

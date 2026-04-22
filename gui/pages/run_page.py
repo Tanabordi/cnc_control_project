@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from ops.gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
 from core.utils import _btn, _set_enabled, _read_text, _ts
+from core.i18n import tr
 
 
 class RunPage(QWidget):
@@ -35,8 +36,8 @@ class RunPage(QWidget):
         L.setSpacing(4)
 
         # Canvas
-        canvas_box = QGroupBox("G-code program")
-        cv = QVBoxLayout(canvas_box)
+        self.canvas_box = QGroupBox(tr("grp_gcode_program"))
+        cv = QVBoxLayout(self.canvas_box)
         cv.setContentsMargins(4, 4, 4, 4)
         cv.setSpacing(4)
         if FigureCanvas is None or Figure is None:
@@ -51,12 +52,14 @@ class RunPage(QWidget):
         self.info_lbl = QLabel("X: -    Y: -    Z: -")
         self.info_lbl.setStyleSheet("font-family: monospace; font-size: 10px; padding: 2px;")
         cv.addWidget(self.info_lbl)
-        L.addWidget(canvas_box, 1)
+        L.addWidget(self.canvas_box, 1)
 
         # Command table
         self.cmd_table = QTableWidget()
         self.cmd_table.setColumnCount(4)
-        self.cmd_table.setHorizontalHeaderLabels(["#", "Command", "State", "Response"])
+        self.cmd_table.setHorizontalHeaderLabels([
+            tr("cmd_col_no"), tr("cmd_col_command"), tr("cmd_col_state"), tr("cmd_col_response")
+        ])
         self.cmd_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.cmd_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cmd_table.setAlternatingRowColors(True)
@@ -76,8 +79,8 @@ class RunPage(QWidget):
         R.setSpacing(8)
 
         # State box
-        state_box = QGroupBox("State")
-        sg = QVBoxLayout(state_box)
+        self.state_box = QGroupBox(tr("grp_state"))
+        sg = QVBoxLayout(self.state_box)
         sg.setContentsMargins(8, 8, 8, 8)
         sg.setSpacing(4)
 
@@ -89,7 +92,8 @@ class RunPage(QWidget):
             f.setText("0.000")
             return f
 
-        sg.addWidget(QLabel("Work coordinates:"))
+        self.work_coords_lbl = QLabel(tr("lbl_work_coords"))
+        sg.addWidget(self.work_coords_lbl)
         wrow = QHBoxLayout()
         self.wpos_x = _coord_field()
         self.wpos_y = _coord_field()
@@ -99,7 +103,8 @@ class RunPage(QWidget):
         wrow.addWidget(self.wpos_z)
         sg.addLayout(wrow)
 
-        sg.addWidget(QLabel("Machine coordinates:"))
+        self.machine_coords_lbl = QLabel(tr("lbl_machine_coords"))
+        sg.addWidget(self.machine_coords_lbl)
         mrow = QHBoxLayout()
         self.mpos_x = _coord_field()
         self.mpos_y = _coord_field()
@@ -110,27 +115,29 @@ class RunPage(QWidget):
         sg.addLayout(mrow)
 
         sstat = QHBoxLayout()
-        sstat.addWidget(QLabel("Status:"))
+        self.status_label = QLabel(tr("lbl_status"))
+        sstat.addWidget(self.status_label)
         self.state_lbl = QLabel("-")
         sstat.addWidget(self.state_lbl, 1)
         sg.addLayout(sstat)
 
         pnrow = QHBoxLayout()
-        pnrow.addWidget(QLabel("Pins (Pn):"))
+        self.pins_label = QLabel(tr("lbl_pins"))
+        pnrow.addWidget(self.pins_label)
         self.pn_lbl = QLabel("-")
         pnrow.addWidget(self.pn_lbl, 1)
         sg.addLayout(pnrow)
 
-        R.addWidget(state_box)
+        R.addWidget(self.state_box)
 
         # Action buttons
-        self.home_btn     = _btn("Home ($H)")
-        self.unlock_btn   = _btn("Unlock ($X)")
-        self.zero_btn     = _btn("Set Work Zero (G54)")
-        self.go_zero_btn  = _btn("Go Machine Zero (G53)")
-        self.reset_btn2   = _btn("Reset (Ctrl+X)")
-        self.auto_unlock_cb = QCheckBox("Auto $X after Reset")
-        self.estop_btn    = _btn("E-STOP")
+        self.home_btn     = _btn(tr("btn_home_h"))
+        self.unlock_btn   = _btn(tr("btn_unlock_x"))
+        self.zero_btn     = _btn(tr("btn_set_zero_g54"))
+        self.go_zero_btn  = _btn(tr("btn_go_zero_g53"))
+        self.reset_btn2   = _btn(tr("btn_reset_ctrl_x"))
+        self.auto_unlock_cb = QCheckBox(tr("cb_auto_x_reset"))
+        self.estop_btn    = _btn(tr("btn_run_estop"))
 
         act1 = QHBoxLayout()
         act1.addWidget(self.home_btn, 1)
@@ -147,27 +154,27 @@ class RunPage(QWidget):
         R.addLayout(act3)
 
         # Log
-        log_box = QGroupBox("Log")
-        log_v = QVBoxLayout(log_box)
+        self.log_grp = QGroupBox(tr("grp_log"))
+        log_v = QVBoxLayout(self.log_grp)
         log_v.setContentsMargins(8, 8, 8, 8)
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setLineWrapMode(QTextEdit.NoWrap)
         log_v.addWidget(self.log_view, 1)
-        R.addWidget(log_box, 1)
+        R.addWidget(self.log_grp, 1)
 
         # Console input
-        console_box = QGroupBox("Console")
-        cns_v = QVBoxLayout(console_box)
+        self.console_grp = QGroupBox(tr("grp_run_console"))
+        cns_v = QVBoxLayout(self.console_grp)
         cns_v.setContentsMargins(8, 8, 8, 8)
         console_row = QHBoxLayout()
         self.console_input = QLineEdit()
-        self.console_input.setPlaceholderText("Send GRBL command (e.g. $I, ?, $$, G28 ...)")
-        self.console_send_btn = _btn("Send", enabled=False)
+        self.console_input.setPlaceholderText(tr("ph_run_console"))
+        self.console_send_btn = _btn(tr("btn_send"), enabled=False)
         console_row.addWidget(self.console_input, 1)
         console_row.addWidget(self.console_send_btn)
         cns_v.addLayout(console_row)
-        R.addWidget(console_box)
+        R.addWidget(self.console_grp)
 
         splitter.addWidget(left)
         splitter.addWidget(right)
@@ -193,19 +200,19 @@ class RunPage(QWidget):
 
         # --- Bottom toolbar ---
         bot = QHBoxLayout()
-        self.check_mode_cb = QCheckBox("Check mode")
-        self.autoscroll_cb = QCheckBox("Autoscroll")
+        self.check_mode_cb = QCheckBox(tr("cb_check_mode"))
+        self.autoscroll_cb = QCheckBox(tr("cb_autoscroll"))
         self.autoscroll_cb.setChecked(True)
         bot.addWidget(self.check_mode_cb)
         bot.addWidget(self.autoscroll_cb)
         bot.addStretch(1)
 
-        self.load_btn = _btn("Open", enabled=True)
-        self.reset_btn = _btn("Reset", enabled=False)
-        self.run_btn = _btn("Send")
-        self.pause_btn = _btn("Pause")
-        self.resume_btn = _btn("Resume")
-        self.stop_btn = _btn("Abort")
+        self.load_btn = _btn(tr("btn_open"), enabled=True)
+        self.reset_btn = _btn(tr("btn_run_reset"), enabled=False)
+        self.run_btn = _btn(tr("btn_run_send"))
+        self.pause_btn = _btn(tr("btn_pause"))
+        self.resume_btn = _btn(tr("btn_resume"))
+        self.stop_btn = _btn(tr("btn_abort"))
         for b in [self.load_btn, self.reset_btn, self.run_btn,
                   self.pause_btn, self.resume_btn, self.stop_btn]:
             bot.addWidget(b)
@@ -236,6 +243,41 @@ class RunPage(QWidget):
         self.set_connected(False)
         self.set_stream_state("idle")
 
+    def retranslate_ui(self):
+        """Dynamically update all translatable text in the run page."""
+        self.canvas_box.setTitle(tr("grp_gcode_program"))
+        self.cmd_table.setHorizontalHeaderLabels([
+            tr("cmd_col_no"), tr("cmd_col_command"), tr("cmd_col_state"), tr("cmd_col_response")
+        ])
+
+        self.state_box.setTitle(tr("grp_state"))
+        self.work_coords_lbl.setText(tr("lbl_work_coords"))
+        self.machine_coords_lbl.setText(tr("lbl_machine_coords"))
+        self.status_label.setText(tr("lbl_status"))
+        self.pins_label.setText(tr("lbl_pins"))
+
+        self.home_btn.setText(tr("btn_home_h"))
+        self.unlock_btn.setText(tr("btn_unlock_x"))
+        self.zero_btn.setText(tr("btn_set_zero_g54"))
+        self.go_zero_btn.setText(tr("btn_go_zero_g53"))
+        self.reset_btn2.setText(tr("btn_reset_ctrl_x"))
+        self.auto_unlock_cb.setText(tr("cb_auto_x_reset"))
+        self.estop_btn.setText(tr("btn_run_estop"))
+
+        self.log_grp.setTitle(tr("grp_log"))
+        self.console_grp.setTitle(tr("grp_run_console"))
+        self.console_input.setPlaceholderText(tr("ph_run_console"))
+        self.console_send_btn.setText(tr("btn_send"))
+
+        self.check_mode_cb.setText(tr("cb_check_mode"))
+        self.autoscroll_cb.setText(tr("cb_autoscroll"))
+        self.load_btn.setText(tr("btn_open"))
+        self.reset_btn.setText(tr("btn_run_reset"))
+        self.run_btn.setText(tr("btn_run_send"))
+        self.pause_btn.setText(tr("btn_pause"))
+        self.resume_btn.setText(tr("btn_resume"))
+        self.stop_btn.setText(tr("btn_abort"))
+
     # ---- Tool position ----
     def update_tool_position(self, x: float, y: float):
         if self._tool_dot is None or self.canvas is None:
@@ -256,7 +298,7 @@ class RunPage(QWidget):
         if not ok:
             self.pause_btn.setEnabled(False)
             self.resume_btn.setEnabled(False)
-        self.state_lbl.setText("Port opened" if ok else "Disconnected")
+        self.state_lbl.setText(tr("lbl_port_opened") if ok else tr("lbl_run_disconnected"))
 
     # ---- Progress ----
     def set_estimated_time(self, seconds: float):
@@ -318,7 +360,7 @@ class RunPage(QWidget):
     # ---- File load ----
     def on_load(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open G-code", "", "G-code (*.gcode *.nc *.ngc *.txt)"
+            self, tr("dlg_open_gcode"), "", "G-code (*.gcode *.nc *.ngc *.txt)"
         )
         if not path:
             return
@@ -338,11 +380,11 @@ class RunPage(QWidget):
     def on_run_confirm(self):
         path = self.get_path()
         if not path:
-            QMessageBox.warning(self, "No G-code", "Load a G-code file first.")
+            QMessageBox.warning(self, tr("dlg_no_gcode"), tr("dlg_load_first"))
             return
         ret = QMessageBox.question(
-            self, "Confirm Run",
-            "ต้องการ Run G-code ใช่ไหม?\n(ระหว่าง Run จะล็อก Jog/Points เพื่อความปลอดภัย)",
+            self, tr("dlg_confirm_run"),
+            tr("dlg_confirm_run_msg"),
             QMessageBox.Yes | QMessageBox.No
         )
         if ret != QMessageBox.Yes:
@@ -402,7 +444,7 @@ class RunPage(QWidget):
             self.cmd_table.insertRow(idx)
             self.cmd_table.setItem(idx, 0, QTableWidgetItem(str(idx + 1)))
             self.cmd_table.setItem(idx, 1, QTableWidgetItem(stripped))
-            item_state = QTableWidgetItem("In queue")
+            item_state = QTableWidgetItem(tr("cmd_in_queue"))
             item_state.setForeground(Qt.gray)
             self.cmd_table.setItem(idx, 2, item_state)
             self.cmd_table.setItem(idx, 3, QTableWidgetItem(""))
@@ -412,7 +454,7 @@ class RunPage(QWidget):
         for r in range(self.cmd_table.rowCount()):
             item = self.cmd_table.item(r, 2)
             if item:
-                item.setText("In queue")
+                item.setText(tr("cmd_in_queue"))
                 item.setForeground(Qt.gray)
             resp = self.cmd_table.item(r, 3)
             if resp:
@@ -424,7 +466,7 @@ class RunPage(QWidget):
             return
         item = self.cmd_table.item(idx, 2)
         if item:
-            item.setText("Running")
+            item.setText(tr("cmd_running"))
             item.setForeground(Qt.blue)
         if self._autoscroll:
             self.cmd_table.scrollToItem(self.cmd_table.item(idx, 0))
@@ -434,7 +476,7 @@ class RunPage(QWidget):
             return
         item = self.cmd_table.item(idx, 2)
         if item:
-            item.setText("Done")
+            item.setText(tr("cmd_done"))
             item.setForeground(Qt.darkGreen)
 
     def update_cmd_row_error(self, idx: int, msg: str):
@@ -442,7 +484,7 @@ class RunPage(QWidget):
             return
         item = self.cmd_table.item(idx, 2)
         if item:
-            item.setText("Error")
+            item.setText(tr("cmd_error"))
             item.setForeground(Qt.red)
         resp = self.cmd_table.item(idx, 3)
         if resp:

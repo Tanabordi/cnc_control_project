@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from core.settings import AppSettings, save_settings, load_settings, SETTINGS_PATH
 from core.utils import _btn, _ts, apply_theme
+from core.i18n import tr
 
 
 GRBL_DESC = {
@@ -46,12 +47,15 @@ class SettingsPage(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._build_general_tab(), "General")
-        tabs.addTab(self._build_grbl_tab(), "GRBL Parameters")
-        root.addWidget(tabs, 1)
+        self.tabs = QTabWidget()
+        self._general_tab = self._build_general_tab()
+        self._grbl_tab = self._build_grbl_tab()
+        self.tabs.addTab(self._general_tab, tr("tab_general"))
+        self.tabs.addTab(self._grbl_tab, tr("tab_grbl"))
+        root.addWidget(self.tabs, 1)
 
-        root.addWidget(QLabel("Log:"))
+        self.log_label = QLabel(tr("lbl_log_settings"))
+        root.addWidget(self.log_label)
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMinimumHeight(120)
@@ -68,8 +72,8 @@ class SettingsPage(QWidget):
         v.setContentsMargins(8, 8, 8, 8)
         v.setSpacing(8)
 
-        grp = QGroupBox("Settings")
-        form = QFormLayout()
+        self.settings_grp = QGroupBox(tr("grp_settings"))
+        self.form = QFormLayout()
 
         self.baud_box = QComboBox()
         self.baud_box.addItems(["9600", "19200", "38400", "57600", "115200",
@@ -77,8 +81,8 @@ class SettingsPage(QWidget):
         self.poll_ms = QSpinBox()
         self.poll_ms.setRange(30, 2000)
         self.poll_ms.setValue(150)
-        self.auto_unlock_connect = QCheckBox("Auto $X after Connect")
-        self.auto_unlock_reset   = QCheckBox("Auto $X after Reset")
+        self.auto_unlock_connect = QCheckBox(tr("cb_auto_x_connect"))
+        self.auto_unlock_reset   = QCheckBox(tr("cb_auto_x_reset_s"))
 
         def _dbl():
             d = QDoubleSpinBox()
@@ -97,25 +101,32 @@ class SettingsPage(QWidget):
         self.theme_box = QComboBox()
         self.theme_box.addItems(["dark", "light"])
 
-        form.addRow("Baud rate", self.baud_box)
-        form.addRow("Status poll interval (ms)", self.poll_ms)
-        form.addRow("", self.auto_unlock_connect)
-        form.addRow("", self.auto_unlock_reset)
-        form.addRow(QLabel("Soft Limits (mm)"), QLabel(""))
+        # Store form row labels for retranslation
+        self._baud_lbl = QLabel(tr("lbl_baud"))
+        self._poll_lbl = QLabel(tr("lbl_poll_ms"))
+        self._soft_lbl = QLabel(tr("lbl_soft_limits"))
+        self._safez_lbl = QLabel(tr("lbl_safe_z"))
+        self._theme_lbl = QLabel(tr("lbl_theme"))
+
+        self.form.addRow(self._baud_lbl, self.baud_box)
+        self.form.addRow(self._poll_lbl, self.poll_ms)
+        self.form.addRow("", self.auto_unlock_connect)
+        self.form.addRow("", self.auto_unlock_reset)
+        self.form.addRow(self._soft_lbl, QLabel(""))
         for k, w in [("X min", self.xmin), ("X max", self.xmax),
                      ("Y min", self.ymin), ("Y max", self.ymax),
                      ("Z min", self.zmin), ("Z max", self.zmax)]:
-            form.addRow(k, w)
-        form.addRow(QLabel(""))
-        form.addRow("Safe Z height (mm)", self.safe_z_spin)
-        form.addRow("Theme", self.theme_box)
-        grp.setLayout(form)
-        v.addWidget(grp)
+            self.form.addRow(k, w)
+        self.form.addRow(QLabel(""))
+        self.form.addRow(self._safez_lbl, self.safe_z_spin)
+        self.form.addRow(self._theme_lbl, self.theme_box)
+        self.settings_grp.setLayout(self.form)
+        v.addWidget(self.settings_grp)
 
         btns = QHBoxLayout()
-        self.apply_btn  = _btn("Apply (No Save)", enabled=True)
-        self.save_btn   = _btn("Save to settings.json", enabled=True)
-        self.reload_btn = _btn("Reload from settings.json", enabled=True)
+        self.apply_btn  = _btn(tr("btn_apply"), enabled=True)
+        self.save_btn   = _btn(tr("btn_save_settings"), enabled=True)
+        self.reload_btn = _btn(tr("btn_reload_settings"), enabled=True)
         btns.addWidget(self.apply_btn)
         btns.addWidget(self.save_btn)
         btns.addWidget(self.reload_btn)
@@ -137,9 +148,9 @@ class SettingsPage(QWidget):
         v.setSpacing(6)
 
         btns = QHBoxLayout()
-        self.read_grbl_btn  = _btn("Read from GRBL ($$)", enabled=False)
-        self.test_conn_btn  = _btn("Test Connection ($I)", enabled=False)
-        self.write_grbl_btn = _btn("Write to GRBL", enabled=False)
+        self.read_grbl_btn  = _btn(tr("btn_read_grbl"), enabled=False)
+        self.test_conn_btn  = _btn(tr("btn_test_conn"), enabled=False)
+        self.write_grbl_btn = _btn(tr("btn_write_grbl"), enabled=False)
         btns.addWidget(self.read_grbl_btn)
         btns.addWidget(self.test_conn_btn)
         btns.addWidget(self.write_grbl_btn)
@@ -148,7 +159,9 @@ class SettingsPage(QWidget):
 
         self.params_table = QTableWidget()
         self.params_table.setColumnCount(3)
-        self.params_table.setHorizontalHeaderLabels(["Parameter", "Value", "Description"])
+        self.params_table.setHorizontalHeaderLabels([
+            tr("grbl_col_param"), tr("grbl_col_value"), tr("grbl_col_desc")
+        ])
         self.params_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.params_table.setAlternatingRowColors(True)
         self.params_table.verticalHeader().setVisible(False)
@@ -163,6 +176,34 @@ class SettingsPage(QWidget):
         self.test_conn_btn.clicked.connect(self._test_connection)
         self.write_grbl_btn.clicked.connect(self._write_grbl_params)
         return tab
+
+    # ---- retranslate_ui -----------------------------------------------------
+    def retranslate_ui(self):
+        """Dynamically update all translatable text in the settings page."""
+        self.tabs.setTabText(0, tr("tab_general"))
+        self.tabs.setTabText(1, tr("tab_grbl"))
+        self.log_label.setText(tr("lbl_log_settings"))
+
+        # General tab
+        self.settings_grp.setTitle(tr("grp_settings"))
+        self._baud_lbl.setText(tr("lbl_baud"))
+        self._poll_lbl.setText(tr("lbl_poll_ms"))
+        self.auto_unlock_connect.setText(tr("cb_auto_x_connect"))
+        self.auto_unlock_reset.setText(tr("cb_auto_x_reset_s"))
+        self._soft_lbl.setText(tr("lbl_soft_limits"))
+        self._safez_lbl.setText(tr("lbl_safe_z"))
+        self._theme_lbl.setText(tr("lbl_theme"))
+        self.apply_btn.setText(tr("btn_apply"))
+        self.save_btn.setText(tr("btn_save_settings"))
+        self.reload_btn.setText(tr("btn_reload_settings"))
+
+        # GRBL tab
+        self.read_grbl_btn.setText(tr("btn_read_grbl"))
+        self.test_conn_btn.setText(tr("btn_test_conn"))
+        self.write_grbl_btn.setText(tr("btn_write_grbl"))
+        self.params_table.setHorizontalHeaderLabels([
+            tr("grbl_col_param"), tr("grbl_col_value"), tr("grbl_col_desc")
+        ])
 
     # ---- GRBL params collect ------------------------------------------------
     def _read_grbl_params(self):
@@ -264,7 +305,7 @@ class SettingsPage(QWidget):
     def _sync_limits_to_grbl(self):
         s = self.app.settings
         w = self.app.worker
-        if not w.ser or not w.ser.is_open:
+        if not w._is_sim and (not w.ser or not w.ser.is_open):
             return
         tx = max(abs(s.xmin), abs(s.xmax))
         ty = max(abs(s.ymin), abs(s.ymax))

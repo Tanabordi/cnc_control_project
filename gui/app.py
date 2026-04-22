@@ -3,9 +3,10 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QToolButton, QMenu, QStackedWidget,
+    QToolButton, QMenu, QStackedWidget, QComboBox,
     QMessageBox, QFileDialog, QDialog,
 )
 
@@ -13,6 +14,7 @@ from core.models import Point
 from core.settings import load_settings, save_settings
 from core.utils import clamp, _set_enabled, apply_theme
 from core.worker import GrblWorker
+from core.i18n import tr, set_language, get_language
 from gui.preview import Preview3DWindow
 from gui.pages import ControlPage, RunPage, SettingsPage
 from core.controller import CNCController
@@ -30,10 +32,18 @@ class MainWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CNC Control (GRBL-ESP32 / MKS DLC32)")
-        self.setFocusPolicy(Qt.StrongFocus)
 
         self.settings = load_settings()
+
+        # Apply saved language before building any UI
+        set_language(self.settings.language)
+
+        # Set a font that renders Thai characters perfectly
+        _apply_thai_safe_font(self)
+
+        self.setWindowTitle(tr("window_title"))
+        self.setFocusPolicy(Qt.StrongFocus)
+
         self.worker = GrblWorker()
         self.controller = CNCController(self.worker, self.settings)
         self._last_alarm_was_hard_limit = False
@@ -45,18 +55,32 @@ class MainWindow(QWidget):
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
 
         menu = QMenu(self)
-        self.act_control = menu.addAction("Control")
-        self.act_run = menu.addAction("G-code program")
-        self.act_settings = menu.addAction("Settings")
+        self.act_control = menu.addAction(tr("menu_control"))
+        self.act_run = menu.addAction(tr("menu_gcode"))
+        self.act_settings = menu.addAction(tr("menu_settings"))
         menu.addSeparator()
-        self.act_exit = menu.addAction("Exit")
+        self.act_exit = menu.addAction(tr("menu_exit"))
         self.menu_btn.setMenu(menu)
 
         top.addWidget(self.menu_btn)
         top.addWidget(QLabel(""), 1)
-        self.page_title = QLabel("Control")
+        self.page_title = QLabel(tr("page_control"))
         top.addWidget(self.page_title)
         top.addStretch(1)
+
+        # --- Language selector (top-right) ---
+        lang_lbl = QLabel(tr("lbl_language"))
+        lang_lbl.setStyleSheet("font-weight: bold;")
+        self._lang_label = lang_lbl
+        self.lang_box = QComboBox()
+        self.lang_box.addItems(["English", "ภาษาไทย"])
+        self.lang_box.setFixedWidth(120)
+        if self.settings.language == "th":
+            self.lang_box.setCurrentIndex(1)
+        else:
+            self.lang_box.setCurrentIndex(0)
+        top.addWidget(lang_lbl)
+        top.addWidget(self.lang_box)
 
         # --- Pages ---
         self.stack = QStackedWidget()
@@ -126,6 +150,9 @@ class MainWindow(QWidget):
         self.control_page.btn_z_minus.clicked.connect(lambda: self.jog("Z", -self.get_step()))
         # ---------------------------------------------------------
 
+        # Language toggle
+        self.lang_box.currentIndexChanged.connect(self._on_language_changed)
+
         self.refresh_ports()
         self.on_step_mode(self.control_page.step_mode.currentText())
         self.settings_page.load_into_ui(self.settings)
@@ -136,12 +163,40 @@ class MainWindow(QWidget):
             if idx >= 0:
                 self.control_page.port_box.setCurrentIndex(idx)
 
+    # -------- Language --------
+    def _on_language_changed(self, index: int):
+        """Handle language ComboBox change."""
+        lang = "th" if index == 1 else "en"
+        set_language(lang)
+        self.settings.language = lang
+        save_settings(self.settings)
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        """Dynamically update all translatable text across the entire app."""
+        self.setWindowTitle(tr("window_title"))
+        self.act_control.setText(tr("menu_control"))
+        self.act_run.setText(tr("menu_gcode"))
+        self.act_settings.setText(tr("menu_settings"))
+        self.act_exit.setText(tr("menu_exit"))
+        self._lang_label.setText(tr("lbl_language"))
+
+        # Update page title for current page
+        cur = self.stack.currentIndex()
+        titles = {0: "page_control", 1: "page_gcode", 2: "page_settings"}
+        self.page_title.setText(tr(titles.get(cur, "page_control")))
+
+        # Delegate to each page
+        self.control_page.retranslate_ui()
+        self.run_page.retranslate_ui()
+        self.settings_page.retranslate_ui()
+
     def show_page(self, name: str):
         """Show specified page."""
-        mp = {"control": (0, "Control"), "run": (1, "G-code program"), "settings": (2, "Settings")}
-        i, title = mp.get(name, (0, "Control"))
+        mp = {"control": (0, "page_control"), "run": (1, "page_gcode"), "settings": (2, "page_settings")}
+        i, title_key = mp.get(name, (0, "page_control"))
         self.stack.setCurrentIndex(i)
-        self.page_title.setText(title)
+        self.page_title.setText(tr(title_key))
 
     def apply_settings_to_runtime(self):
         """Apply settings to runtime."""
@@ -188,6 +243,7 @@ class MainWindow(QWidget):
         import serial.tools.list_ports
         self.control_page.port_box.clear()
         ports = [p.device for p in serial.tools.list_ports.comports()]
+        ports.append("SIMULATOR")
         self.control_page.port_box.addItems(ports)
         self.on_log(f"Found ports: {', '.join(ports) if ports else '(none)'}")
 
@@ -365,3 +421,12 @@ class MainWindow(QWidget):
         except Exception:
             pass
         event.accept()
+
+
+def _apply_thai_safe_font(widget):
+    """Set a font family that renders Thai glyphs correctly on Windows."""
+    # Leelawadee UI ships with Windows 10+; Tahoma is the fallback.
+    font = QFont()
+    font.setFamilies(["Leelawadee UI", "Tahoma", "Segoe UI", "sans-serif"])
+    font.setPointSize(9)
+    widget.setFont(font)
