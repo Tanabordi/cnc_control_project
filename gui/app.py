@@ -131,7 +131,7 @@ class MainWindow(QWidget):
         self.control_page.home_z_btn.clicked.connect(self.do_home_z)
         self.control_page.reset_btn.clicked.connect(self.do_reset)
         self.control_page.estop_btn.clicked.connect(self.do_estop)
-        self.control_page.unlock_btn.clicked.connect(lambda: self.worker.send_line("$X"))
+        self.control_page.unlock_btn.clicked.connect(self._do_unlock)
         self.control_page.zero_btn.clicked.connect(self.set_work_zero)
         self.control_page.go_zero_btn.clicked.connect(self.go_machine_zero)
         self.control_page.go_work_zero_btn.clicked.connect(self.go_work_zero)
@@ -215,7 +215,23 @@ class MainWindow(QWidget):
         """Apply settings to runtime."""
         self.worker.set_poll_interval_ms(self.settings.status_poll_ms)
         self.control_page.auto_unlock_cb.setChecked(bool(self.settings.auto_unlock_after_reset))
+        if hasattr(self.run_page, 'auto_unlock_cb'):
+            self.run_page.auto_unlock_cb.setChecked(bool(self.settings.auto_unlock_after_reset))
         apply_theme(self.settings.theme)
+        
+        if not getattr(self, '_auto_unlock_cb_connected', False):
+            self._auto_unlock_cb_connected = True
+            self.control_page.auto_unlock_cb.clicked.connect(self._on_auto_unlock_toggled)
+            if hasattr(self.run_page, 'auto_unlock_cb'):
+                self.run_page.auto_unlock_cb.clicked.connect(self._on_auto_unlock_toggled)
+
+    def _on_auto_unlock_toggled(self, checked):
+        """Update settings when Auto Unlock checkbox is clicked."""
+        self.settings.auto_unlock_after_reset = checked
+        self.control_page.auto_unlock_cb.setChecked(checked)
+        if hasattr(self.run_page, 'auto_unlock_cb'):
+            self.run_page.auto_unlock_cb.setChecked(checked)
+        save_settings(self.settings)
 
     def keyPressEvent(self, event):
         """Handle keyboard events for jogging."""
@@ -457,6 +473,18 @@ class MainWindow(QWidget):
 
     def do_estop(self):
         grbl_commands.do_estop(self)
+
+    def _do_unlock(self):
+        """Unlock the machine: clear UI lock, send $X, re-enable controls."""
+        self.controller._ui_locked = False
+        self.controller._alarm_active = False
+        self.worker.send_line("$X")
+        self.on_log("Unlock ($X) — ปลดล็อคเรียบร้อย")
+        # Re-enable jog and home buttons
+        from core.utils import _set_enabled
+        cp = self.control_page
+        _set_enabled(cp.jog_buttons, True)
+        _set_enabled([cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn], True)
 
     def send_console_command(self):
         grbl_commands.send_console_command(self)

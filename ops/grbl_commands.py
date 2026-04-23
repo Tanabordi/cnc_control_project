@@ -56,12 +56,16 @@ def do_home_z(main_window):
 
 
 def do_reset(main_window):
-    """Reset GRBL."""
+    """Reset GRBL (soft reset).
+    
+    If auto_unlock_after_reset is enabled, the machine will auto-unlock.
+    Otherwise, it stays locked until user presses Unlock.
+    """
     if not main_window.controller.is_connected():
         return
+    if not main_window.settings.auto_unlock_after_reset:
+        main_window.controller._ui_locked = True
     main_window.worker.send_reset()
-    if main_window.control_page.auto_unlock_cb.isChecked():
-        main_window.worker.send_line("$X")
 
 
 def do_estop(main_window):
@@ -75,6 +79,10 @@ def do_estop(main_window):
     )
     if ret != QMessageBox.Yes:
         return
+    import time
+    main_window.controller._estop_triggered = True
+    main_window.controller._estop_time = time.time()
+    main_window.controller._ui_locked = True
     main_window.worker.estop()
 
 

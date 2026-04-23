@@ -22,6 +22,9 @@ class CNCController:
         self._streaming_now = False
         self._alarm_active = False
         self._last_auto_x_time = 0.0
+        self._estop_triggered = False
+        self._estop_time = 0.0
+        self._ui_locked = False  # UI-level lock: blocks movement until user presses Unlock
 
     # -------- Connection Management --------
     def set_connected(self, connected: bool):
@@ -287,7 +290,11 @@ class CNCController:
     def handle_grbl_reset(self):
         """Handle GRBL reset event."""
         now = time.time()
-        if self._connected and self.settings.auto_unlock_after_connect:
+        if self._estop_triggered or (now - self._estop_time < 3.0):
+            self._estop_triggered = False
+            return
+
+        if self._connected and self.settings.auto_unlock_after_reset:
             if now - self._last_auto_x_time > 2.0:
                 self._last_auto_x_time = now
                 self.worker.send_line("$X")

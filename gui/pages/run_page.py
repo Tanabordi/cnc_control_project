@@ -141,11 +141,17 @@ class RunPage(QWidget):
         self.home_y_btn = _btn(tr("btn_home_y"))
         self.home_z_btn = _btn(tr("btn_home_z"))
         self.unlock_btn = _btn(tr("btn_unlock"))
+        self.unlock_btn.setStyleSheet("QPushButton { background-color: #0d6efd; color: white; font-weight: bold; }"
+                                      "QPushButton:disabled { background-color: #555; color: #888; }")
         self.zero_btn = _btn(tr("btn_set_zero"))
         self.go_zero_btn = _btn(tr("btn_go_zero"))
         self.go_work_zero_btn = _btn(tr("btn_go_work_zero"))
         self.reset_btn2 = _btn(tr("btn_reset"))
+        self.reset_btn2.setStyleSheet("QPushButton { background-color: #e0a800; color: black; font-weight: bold; }")
         self.estop_btn = _btn(tr("btn_estop"))
+        self.estop_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-weight: bold; font-size: 13px; }"
+                                     "QPushButton:hover { background-color: #ff1a2d; }")
+        self.estop_btn.setMinimumHeight(36)
         self.estop_btn.setObjectName("estop_btn")
 
         # Row 0: Home All | Home X | Home Y | Home Z
@@ -249,7 +255,7 @@ class RunPage(QWidget):
         self.home_x_btn.clicked.connect(self.app.do_home_x)
         self.home_y_btn.clicked.connect(self.app.do_home_y)
         self.home_z_btn.clicked.connect(self.app.do_home_z)
-        self.unlock_btn.clicked.connect(lambda: self.app.worker.send_line("$X"))
+        self.unlock_btn.clicked.connect(lambda: self.app._do_unlock())
         self.zero_btn.clicked.connect(self.app.set_work_zero)
         self.go_zero_btn.clicked.connect(self.app.go_machine_zero)
         self.go_work_zero_btn.clicked.connect(self.app.go_work_zero)

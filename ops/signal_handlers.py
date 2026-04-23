@@ -34,8 +34,10 @@ def on_connected(main_window, ok: bool):
     cp.connect_btn.setEnabled(not ok)
     cp.disconnect_btn.setEnabled(ok)
 
-    _set_enabled(_home_buttons(cp) + [cp.unlock_btn, cp.zero_btn,
+    _set_enabled(_home_buttons(cp) + [cp.zero_btn,
                   cp.go_zero_btn, cp.go_work_zero_btn, cp.reset_btn, cp.estop_btn], ok)
+    cp.unlock_btn.setEnabled(False)
+    main_window.run_page.unlock_btn.setEnabled(False)
     _set_enabled(cp.jog_buttons, ok)
     _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
@@ -87,14 +89,35 @@ def on_status(main_window, payload: dict):
         page.mpos_x.setText(f"{mx:.3f}")
         page.mpos_y.setText(f"{my:.3f}")
         page.mpos_z.setText(f"{mz:.3f}")
-        page.state_lbl.setText(state)
         page.pn_lbl.setText(pn if pn else "-")
 
     main_window.run_page.update_tool_position(wx, wy)
 
-    if state.lower().startswith("alarm") and not main_window.controller._alarm_active:
+    is_alarm = state.lower().startswith("alarm")
+    ui_locked = main_window.controller._ui_locked
+
+    # If UI is locked (after Reset/E-STOP), override the displayed state
+    if ui_locked:
+        for page in (main_window.control_page, main_window.run_page):
+            page.state_lbl.setText(f"{state} [LOCKED]")
+        # Keep unlock button enabled, keep jog/home disabled
+        main_window.control_page.unlock_btn.setEnabled(True)
+        main_window.run_page.unlock_btn.setEnabled(True)
+        cp = main_window.control_page
+        _set_enabled(cp.jog_buttons, False)
+        _set_enabled(_home_buttons(cp), False)
+        return
+
+    # Normal (unlocked) state handling
+    for page in (main_window.control_page, main_window.run_page):
+        page.state_lbl.setText(state)
+
+    main_window.control_page.unlock_btn.setEnabled(is_alarm)
+    main_window.run_page.unlock_btn.setEnabled(is_alarm)
+
+    if is_alarm and not main_window.controller._alarm_active:
         main_window.on_alarm(state)
-    elif main_window.controller._alarm_active and not state.lower().startswith("alarm"):
+    elif main_window.controller._alarm_active and not is_alarm:
         main_window.controller._alarm_active = False
         main_window._last_alarm_was_hard_limit = False
         cp = main_window.control_page
@@ -147,14 +170,27 @@ def on_grbl_reset(main_window):
     """Handle GRBL reset event."""
     was_hard_limit = getattr(main_window, '_last_alarm_was_hard_limit', False)
     was_alarm = main_window.controller._alarm_active
+    ui_locked = main_window.controller._ui_locked
     main_window.controller._alarm_active = False
     main_window._last_alarm_was_hard_limit = False
-    if was_alarm:
+
+    if was_alarm and not ui_locked:
         cp = main_window.control_page
         _set_enabled(cp.jog_buttons, True)
         _set_enabled(_home_buttons(cp), True)
         if not main_window.controller.is_streaming():
             main_window.on_stream_state("idle")
+
     main_window.controller.handle_grbl_reset()
-    if was_hard_limit:
-        return
+
+    if ui_locked:
+        # Keep unlock button active, keep jog/home locked
+        main_window.control_page.unlock_btn.setEnabled(True)
+        main_window.run_page.unlock_btn.setEnabled(True)
+        cp = main_window.control_page
+        _set_enabled(cp.jog_buttons, False)
+        _set_enabled(_home_buttons(cp), False)
+        main_window.on_log("⚠ เครื่องถูกล็อคโดย UI — กด Unlock ($X) เพื่อปลดล็อค")
+    else:
+        main_window.control_page.unlock_btn.setEnabled(False)
+        main_window.run_page.unlock_btn.setEnabled(False)
