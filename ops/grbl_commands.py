@@ -16,12 +16,43 @@ def go_machine_zero(main_window):
     main_window.on_log("Go to Machine Zero (G53)")
 
 
-def do_home(main_window):
-    """Start homing sequence."""
+def go_work_zero(main_window):
+    """Go to work zero (G0 X0 Y0 Z0)."""
+    main_window.worker.send_line("G90")
+    main_window.worker.send_line("G0 X0 Y0 Z0")
+    main_window.on_log("Go to Work Zero (G0 X0 Y0 Z0)")
+
+
+def do_home_all(main_window):
+    """Home all axes ($H)."""
     if not main_window.controller.is_connected():
         return
-    main_window.controller.start_homing()
-    main_window.on_log("Homing started...")
+    main_window.worker.send_line("$H")
+    main_window.on_log("Homing All axes ($H)")
+
+
+def do_home_x(main_window):
+    """Home X axis ($HX)."""
+    if not main_window.controller.is_connected():
+        return
+    main_window.worker.send_line("$HX")
+    main_window.on_log("Homing X axis ($HX)")
+
+
+def do_home_y(main_window):
+    """Home Y axis ($HY)."""
+    if not main_window.controller.is_connected():
+        return
+    main_window.worker.send_line("$HY")
+    main_window.on_log("Homing Y axis ($HY)")
+
+
+def do_home_z(main_window):
+    """Home Z axis ($HZ)."""
+    if not main_window.controller.is_connected():
+        return
+    main_window.worker.send_line("$HZ")
+    main_window.on_log("Homing Z axis ($HZ)")
 
 
 def do_reset(main_window):

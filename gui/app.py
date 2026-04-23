@@ -125,12 +125,16 @@ class MainWindow(QWidget):
         self.control_page.wp_table.cellClicked.connect(self.on_waypoint_clicked)
         self.control_page.console_send_btn.clicked.connect(self.send_console_command)
 
-        self.control_page.home_btn.clicked.connect(self.do_home)
+        self.control_page.home_all_btn.clicked.connect(self.do_home_all)
+        self.control_page.home_x_btn.clicked.connect(self.do_home_x)
+        self.control_page.home_y_btn.clicked.connect(self.do_home_y)
+        self.control_page.home_z_btn.clicked.connect(self.do_home_z)
         self.control_page.reset_btn.clicked.connect(self.do_reset)
         self.control_page.estop_btn.clicked.connect(self.do_estop)
         self.control_page.unlock_btn.clicked.connect(lambda: self.worker.send_line("$X"))
         self.control_page.zero_btn.clicked.connect(self.set_work_zero)
         self.control_page.go_zero_btn.clicked.connect(self.go_machine_zero)
+        self.control_page.go_work_zero_btn.clicked.connect(self.go_work_zero)
 
         self.control_page.console_input.returnPressed.connect(self.send_console_command)
 
@@ -382,8 +386,20 @@ class MainWindow(QWidget):
     def go_machine_zero(self):
         grbl_commands.go_machine_zero(self)
 
-    def do_home(self):
-        grbl_commands.do_home(self)
+    def go_work_zero(self):
+        grbl_commands.go_work_zero(self)
+
+    def do_home_all(self):
+        grbl_commands.do_home_all(self)
+
+    def do_home_x(self):
+        grbl_commands.do_home_x(self)
+
+    def do_home_y(self):
+        grbl_commands.do_home_y(self)
+
+    def do_home_z(self):
+        grbl_commands.do_home_z(self)
 
     def do_reset(self):
         grbl_commands.do_reset(self)

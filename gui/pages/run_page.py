@@ -130,25 +130,37 @@ class RunPage(QWidget):
 
         R.addWidget(self.state_box)
 
-        # Action buttons
+        # Action buttons — with 4 home buttons + go work zero
         self.cmd_box = QGroupBox(tr("grp_commands"))
         cmd_layout = QGridLayout(self.cmd_box)
-        
-        self.home_btn     = _btn(tr("btn_home"))
-        self.unlock_btn   = _btn(tr("btn_unlock"))
-        self.zero_btn     = _btn(tr("btn_set_zero"))
-        self.go_zero_btn  = _btn(tr("btn_go_zero"))
-        self.reset_btn2   = _btn(tr("btn_reset"))
-        self.estop_btn    = _btn(tr("btn_estop"))
+        cmd_layout.setSpacing(4)
+
+        self.home_all_btn = _btn(tr("btn_home_all"))
+        self.home_x_btn = _btn(tr("btn_home_x"))
+        self.home_y_btn = _btn(tr("btn_home_y"))
+        self.home_z_btn = _btn(tr("btn_home_z"))
+        self.unlock_btn = _btn(tr("btn_unlock"))
+        self.zero_btn = _btn(tr("btn_set_zero"))
+        self.go_zero_btn = _btn(tr("btn_go_zero"))
+        self.go_work_zero_btn = _btn(tr("btn_go_work_zero"))
+        self.reset_btn2 = _btn(tr("btn_reset"))
+        self.estop_btn = _btn(tr("btn_estop"))
         self.estop_btn.setObjectName("estop_btn")
 
-        cmd_layout.addWidget(self.home_btn, 0, 0)
-        cmd_layout.addWidget(self.unlock_btn, 0, 1)
-        cmd_layout.addWidget(self.zero_btn, 1, 0)
-        cmd_layout.addWidget(self.go_zero_btn, 1, 1)
-        cmd_layout.addWidget(self.reset_btn2, 2, 0)
-        cmd_layout.addWidget(self.estop_btn, 2, 1)
-        
+        # Row 0: Home All | Home X | Home Y | Home Z
+        cmd_layout.addWidget(self.home_all_btn, 0, 0)
+        cmd_layout.addWidget(self.home_x_btn, 0, 1)
+        cmd_layout.addWidget(self.home_y_btn, 0, 2)
+        cmd_layout.addWidget(self.home_z_btn, 0, 3)
+        # Row 1: Unlock | Set Zero | Go Machine Zero | Go Work Zero
+        cmd_layout.addWidget(self.unlock_btn, 1, 0)
+        cmd_layout.addWidget(self.zero_btn, 1, 1)
+        cmd_layout.addWidget(self.go_zero_btn, 1, 2)
+        cmd_layout.addWidget(self.go_work_zero_btn, 1, 3)
+        # Row 2: Reset | E-STOP
+        cmd_layout.addWidget(self.reset_btn2, 2, 0, 1, 2)
+        cmd_layout.addWidget(self.estop_btn, 2, 2, 1, 2)
+
         R.addWidget(self.cmd_box)
         
         self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))
@@ -221,7 +233,7 @@ class RunPage(QWidget):
 
         # ---- signals ----
         self.load_btn.clicked.connect(self.on_load)
-        self.reset_btn.clicked.connect(self.app.do_reset)
+        self.reset_btn.clicked.connect(self.on_reset_stream)  # Reset stream, NOT machine
         self.run_btn.clicked.connect(self.on_run_confirm)
         self.pause_btn.clicked.connect(self.app.worker.pause_stream)
         self.resume_btn.clicked.connect(self.app.worker.resume_stream)
@@ -232,10 +244,14 @@ class RunPage(QWidget):
         self.autoscroll_cb.toggled.connect(
             lambda v: setattr(self, "_autoscroll", v)
         )
-        self.home_btn.clicked.connect(self.app.do_home)
+        self.home_all_btn.clicked.connect(self.app.do_home_all)
+        self.home_x_btn.clicked.connect(self.app.do_home_x)
+        self.home_y_btn.clicked.connect(self.app.do_home_y)
+        self.home_z_btn.clicked.connect(self.app.do_home_z)
         self.unlock_btn.clicked.connect(lambda: self.app.worker.send_line("$X"))
         self.zero_btn.clicked.connect(self.app.set_work_zero)
         self.go_zero_btn.clicked.connect(self.app.go_machine_zero)
+        self.go_work_zero_btn.clicked.connect(self.app.go_work_zero)
         self.reset_btn2.clicked.connect(self.app.do_reset)
         self.estop_btn.clicked.connect(self.app.do_estop)
         self.console_input.returnPressed.connect(self.app.send_run_console_command)
@@ -258,10 +274,14 @@ class RunPage(QWidget):
         self.pins_label.setText(tr("lbl_pins"))
 
         self.cmd_box.setTitle(tr("grp_commands"))
-        self.home_btn.setText(tr("btn_home"))
+        self.home_all_btn.setText(tr("btn_home_all"))
+        self.home_x_btn.setText(tr("btn_home_x"))
+        self.home_y_btn.setText(tr("btn_home_y"))
+        self.home_z_btn.setText(tr("btn_home_z"))
         self.unlock_btn.setText(tr("btn_unlock"))
         self.zero_btn.setText(tr("btn_set_zero"))
         self.go_zero_btn.setText(tr("btn_go_zero"))
+        self.go_work_zero_btn.setText(tr("btn_go_work_zero"))
         self.reset_btn2.setText(tr("btn_reset"))
         self.auto_unlock_cb.setText(tr("cb_auto_unlock"))
         self.estop_btn.setText(tr("btn_estop"))
@@ -294,8 +314,10 @@ class RunPage(QWidget):
     # ---- Connection state ----
     def set_connected(self, ok: bool):
         _set_enabled([self.run_btn, self.reset_btn, self.stop_btn], ok)
-        _set_enabled([self.home_btn, self.unlock_btn, self.zero_btn,
-                      self.go_zero_btn, self.reset_btn2, self.estop_btn,
+        _set_enabled([self.home_all_btn, self.home_x_btn, self.home_y_btn, self.home_z_btn,
+                      self.unlock_btn, self.zero_btn,
+                      self.go_zero_btn, self.go_work_zero_btn,
+                      self.reset_btn2, self.estop_btn,
                       self.console_send_btn], ok)
         if not ok:
             self.pause_btn.setEnabled(False)
@@ -338,8 +360,10 @@ class RunPage(QWidget):
     def set_stream_state(self, st: str):
         is_running = st in ("running", "paused")
         dangerous_btns = [
-            self.home_btn, self.unlock_btn, self.zero_btn,
-            self.go_zero_btn, self.reset_btn2, self.load_btn, self.reset_btn
+            self.home_all_btn, self.home_x_btn, self.home_y_btn, self.home_z_btn,
+            self.unlock_btn, self.zero_btn,
+            self.go_zero_btn, self.go_work_zero_btn,
+            self.reset_btn2, self.load_btn, self.reset_btn
         ]
         
         if is_running:
@@ -370,6 +394,13 @@ class RunPage(QWidget):
 
     def get_path(self) -> str:
         return self._gcode_path
+
+    # ---- Stream reset (NOT machine reset) ----
+    def on_reset_stream(self):
+        """Reset the G-code stream progress and command table states.
+        This does NOT send a hard reset (Ctrl+X) to the machine."""
+        self.reset_cmd_table_states()
+        self.app.on_log("Stream progress reset (table cleared)")
 
     # ---- File load ----
     def on_load(self):

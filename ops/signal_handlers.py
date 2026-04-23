@@ -5,6 +5,11 @@ from PySide6.QtWidgets import QMessageBox
 from core.utils import _set_enabled
 
 
+def _home_buttons(cp):
+    """Return list of all home buttons from a control page."""
+    return [cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn]
+
+
 def setup_signal_handlers(main_window):
     """Connect worker signals to handler methods in MainWindow."""
     worker = main_window.worker
@@ -29,7 +34,8 @@ def on_connected(main_window, ok: bool):
     cp.connect_btn.setEnabled(not ok)
     cp.disconnect_btn.setEnabled(ok)
 
-    _set_enabled([cp.home_btn, cp.unlock_btn, cp.zero_btn, cp.go_zero_btn, cp.reset_btn, cp.estop_btn], ok)
+    _set_enabled(_home_buttons(cp) + [cp.unlock_btn, cp.zero_btn,
+                  cp.go_zero_btn, cp.go_work_zero_btn, cp.reset_btn, cp.estop_btn], ok)
     _set_enabled(cp.jog_buttons, ok)
     _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
@@ -93,7 +99,7 @@ def on_status(main_window, payload: dict):
         main_window._last_alarm_was_hard_limit = False
         cp = main_window.control_page
         _set_enabled(cp.jog_buttons, True)
-        cp.home_btn.setEnabled(True)
+        _set_enabled(_home_buttons(cp), True)
 
 
 def on_log(main_window, msg: str):
@@ -101,7 +107,6 @@ def on_log(main_window, msg: str):
     main_window.control_page.append_log(msg)
     main_window.run_page.append_log(msg)
     main_window.settings_page.append_log(msg)
-    main_window.controller.continue_homing(msg)
 
 
 def _on_line_sent(main_window, idx: int, cmd: str):
@@ -131,7 +136,7 @@ def on_alarm(main_window, msg: str):
     for page in (main_window.control_page, main_window.run_page):
         page.state_lbl.setText(msg)
     _set_enabled(main_window.control_page.jog_buttons, False)
-    main_window.control_page.home_btn.setEnabled(False)
+    _set_enabled(_home_buttons(main_window.control_page), False)
     if main_window._last_alarm_was_hard_limit:
         main_window.on_log("Hard limit! ขยับแกนออกจาก endstop ด้วยมือก่อน แล้วกด Unlock ($X)")
     else:
@@ -147,7 +152,7 @@ def on_grbl_reset(main_window):
     if was_alarm:
         cp = main_window.control_page
         _set_enabled(cp.jog_buttons, True)
-        cp.home_btn.setEnabled(True)
+        _set_enabled(_home_buttons(cp), True)
         if not main_window.controller.is_streaming():
             main_window.on_stream_state("idle")
     main_window.controller.handle_grbl_reset()

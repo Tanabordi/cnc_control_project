@@ -32,6 +32,11 @@ TRANSLATIONS = {
     # ── Control Page – Machine Commands ──
     "grp_commands":          {"en": "⚠️ Machine Commands", "th": "⚠️ คำสั่งเครื่อง"},
     "btn_home":              {"en": "🏠 Home",           "th": "🏠 Home (กลับจุดเริ่มต้น)"},
+    "btn_home_all":          {"en": "🏠 Home All",       "th": "🏠 Home ทุกแกน"},
+    "btn_home_x":            {"en": "🏠 Home X",         "th": "🏠 Home X"},
+    "btn_home_y":            {"en": "🏠 Home Y",         "th": "🏠 Home Y"},
+    "btn_home_z":            {"en": "🏠 Home Z",         "th": "🏠 Home Z"},
+    "btn_go_work_zero":      {"en": "🎯 Go Work Zero",   "th": "🎯 ไปจุดศูนย์ชิ้นงาน"},
     "btn_unlock":            {"en": "🔓 Unlock",         "th": "🔓 ปลดล็อค"},
     "btn_set_zero":          {"en": "🎯 Set Zero (G54)", "th": "🎯 ตั้งจุดศูนย์ชิ้นงาน (G54)"},
     "btn_go_zero":           {"en": "🔙 Go Zero",       "th": "🔙 ไปจุดศูนย์"},

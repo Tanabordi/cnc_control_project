@@ -22,7 +22,6 @@ class CNCController:
         self._streaming_now = False
         self._alarm_active = False
         self._last_auto_x_time = 0.0
-        self._home_state = ""  # "after_H" | "after_dir_set" | "after_HZ"
 
     # -------- Connection Management --------
     def set_connected(self, connected: bool):
@@ -44,6 +43,13 @@ class CNCController:
         s = self.settings
         return (s.xmin, s.xmax, s.ymin, s.ymax, s.zmin, s.zmax)
 
+    def _has_meaningful_limits(self) -> bool:
+        """Return True if soft limits are set to non-default values."""
+        s = self.settings
+        return not (s.xmin == -1000.0 and s.xmax == 1000.0 and
+                    s.ymin == -1000.0 and s.ymax == 1000.0 and
+                    s.zmin == -1000.0 and s.zmax == 1000.0)
+
     def within_limits(self, x: float, y: float, z: float) -> bool:
         xmin, xmax, ymin, ymax, zmin, zmax = self.soft_limits()
         return (xmin <= x <= xmax) and (ymin <= y <= ymax) and (zmin <= z <= zmax)
@@ -51,23 +57,29 @@ class CNCController:
     # -------- Jog and Movement --------
     def jog(self, axis: str, delta: float, feed: float) -> bool:
         """Jog the machine by delta in specified axis. Returns True if successful."""
-        wpos = self.worker.last_wpos()
-        if not wpos:
-            return False
+        # Check soft limits only if they are meaningfully configured
+        if self._has_meaningful_limits():
+            wpos = self.worker.last_wpos()
+            if wpos:
+                x, y, z = wpos
+                nx, ny, nz = x, y, z
+                if axis == "X":
+                    nx = x + delta
+                elif axis == "Y":
+                    ny = y + delta
+                elif axis == "Z":
+                    nz = z + delta
+                if not self.within_limits(nx, ny, nz):
+                    self.worker.log.emit(
+                        f"⚠ Jog blocked: {axis}{delta:+.3f} would exceed soft limits"
+                    )
+                    return False
+            else:
+                self.worker.log.emit(
+                    "⚠ No position data yet — sending jog anyway (incremental)"
+                )
 
-        x, y, z = wpos
-        nx, ny, nz = x, y, z
-
-        if axis == "X":
-            nx = x + delta
-        elif axis == "Y":
-            ny = y + delta
-        elif axis == "Z":
-            nz = z + delta
-
-        if not self.within_limits(nx, ny, nz):
-            return False
-
+        # Always send the incremental jog command
         self.worker.send_line(f"$J=G91 {axis}{delta:.3f} F{feed}")
         return True
 
@@ -279,23 +291,3 @@ class CNCController:
             if now - self._last_auto_x_time > 2.0:
                 self._last_auto_x_time = now
                 self.worker.send_line("$X")
-
-    # -------- Homing Sequence --------
-    def start_homing(self):
-        """Start homing sequence."""
-        if not self._home_state:
-            self._home_state = "after_H"
-            self.worker.send_line("$H")
-
-    def continue_homing(self, response: str):
-        """Continue homing sequence based on response."""
-        if self._home_state and response.strip().lower() == "ok":
-            if self._home_state == "after_H":
-                self._home_state = "after_dir_set"
-                self.worker.send_line("$3=4")
-            elif self._home_state == "after_dir_set":
-                self._home_state = "after_HZ"
-                self.worker.send_line("$HZ")
-            elif self._home_state == "after_HZ":
-                self._home_state = ""
-                self.worker.send_line("$3=0")

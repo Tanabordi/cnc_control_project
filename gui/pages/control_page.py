@@ -2,7 +2,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QComboBox, QSpinBox, QDoubleSpinBox, QSizePolicy,
     QTableWidget, QHeaderView, QTextEdit, QLineEdit,
-    QApplication, QSplitter, QScrollArea, QFrame, QCheckBox, QGridLayout
+    QApplication, QSplitter, QScrollArea, QFrame, QCheckBox, QGridLayout,
+    QPushButton
 )
 from PySide6.QtCore import Qt
 from core.utils import _btn
@@ -10,6 +11,81 @@ from core.i18n import tr
 
 # จำลองตารางเพื่อให้ไม่ติด Error
 WaypointTable = QTableWidget
+
+# ── Jog button CSS styles ──
+_JOG_XY_STYLE = """
+    QPushButton {
+        background-color: #1a3a5c;
+        color: #4da6ff;
+        border: 2px solid #2a5a8c;
+        border-radius: 8px;
+        font-size: 18px;
+        font-weight: bold;
+        min-width: 55px;
+        min-height: 55px;
+    }
+    QPushButton:hover {
+        background-color: #1e4a7a;
+        border-color: #4da6ff;
+    }
+    QPushButton:pressed {
+        background-color: #0d6efd;
+        color: white;
+    }
+    QPushButton:disabled {
+        background-color: #2a2a2a;
+        color: #555;
+        border-color: #444;
+    }
+"""
+
+_JOG_Z_STYLE = """
+    QPushButton {
+        background-color: #3a2a0a;
+        color: #ffb347;
+        border: 2px solid #8a6a1a;
+        border-radius: 8px;
+        font-size: 18px;
+        font-weight: bold;
+        min-width: 55px;
+        min-height: 55px;
+    }
+    QPushButton:hover {
+        background-color: #5a4a1a;
+        border-color: #ffb347;
+    }
+    QPushButton:pressed {
+        background-color: #fd7e14;
+        color: white;
+    }
+    QPushButton:disabled {
+        background-color: #2a2a2a;
+        color: #555;
+        border-color: #444;
+    }
+"""
+
+_JOG_CENTER_STYLE = """
+    QLabel {
+        background-color: #1a1a2e;
+        color: #888;
+        border: 2px solid #333;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: bold;
+        min-width: 55px;
+        min-height: 55px;
+        qproperty-alignment: AlignCenter;
+    }
+"""
+
+_HOME_BTN_STYLE = """
+    QPushButton {
+        font-size: 11px;
+        padding: 4px 6px;
+    }
+"""
+
 
 class ControlPage(QWidget):
     def __init__(self, app_ref):
@@ -77,35 +153,92 @@ class ControlPage(QWidget):
 
         # ----- ฝั่งซ้าย: แผงควบคุมทั้งหมด (มี Scroll Bar) -----
         left = QWidget()
-        left.setMinimumWidth(340)
+        left.setMinimumWidth(380)
         L = QVBoxLayout(left)
         L.setContentsMargins(0, 0, 4, 0)
         
-        # A. Quick Commands (โซนอันตราย/ตั้งค่าเครื่อง)
+        # A. Quick Commands (โซนอันตราย/ตั้งค่าเครื่อง) — with 4 home buttons
         self.cmd_box = QGroupBox(tr("grp_commands"))
-        cmd_layout = QHBoxLayout(self.cmd_box)
-        self.home_btn = _btn(tr("btn_home")); self.unlock_btn = _btn(tr("btn_unlock"))
-        self.zero_btn = _btn(tr("btn_set_zero")); self.go_zero_btn = _btn(tr("btn_go_zero"))
-        self.reset_btn = _btn(tr("btn_reset")); self.estop_btn = _btn(tr("btn_estop"))
+        cmd_grid = QGridLayout(self.cmd_box)
+        cmd_grid.setSpacing(4)
+
+        self.home_all_btn = _btn(tr("btn_home_all"))
+        self.home_x_btn = _btn(tr("btn_home_x")); self.home_x_btn.setStyleSheet(_HOME_BTN_STYLE)
+        self.home_y_btn = _btn(tr("btn_home_y")); self.home_y_btn.setStyleSheet(_HOME_BTN_STYLE)
+        self.home_z_btn = _btn(tr("btn_home_z")); self.home_z_btn.setStyleSheet(_HOME_BTN_STYLE)
+        self.unlock_btn = _btn(tr("btn_unlock"))
+        self.zero_btn = _btn(tr("btn_set_zero"))
+        self.go_zero_btn = _btn(tr("btn_go_zero"))
+        self.go_work_zero_btn = _btn(tr("btn_go_work_zero"))
+        self.reset_btn = _btn(tr("btn_reset"))
+        self.estop_btn = _btn(tr("btn_estop"))
         self.estop_btn.setObjectName("estop_btn")
-        for b in [self.home_btn, self.unlock_btn, self.zero_btn, self.go_zero_btn, self.reset_btn, self.estop_btn]:
-            cmd_layout.addWidget(b)
+
+        # Row 0: Home All | Home X | Home Y | Home Z | Unlock
+        cmd_grid.addWidget(self.home_all_btn, 0, 0)
+        cmd_grid.addWidget(self.home_x_btn, 0, 1)
+        cmd_grid.addWidget(self.home_y_btn, 0, 2)
+        cmd_grid.addWidget(self.home_z_btn, 0, 3)
+        cmd_grid.addWidget(self.unlock_btn, 0, 4)
+        # Row 1: Set Zero | Go Machine Zero | Go Work Zero | Reset | E-STOP
+        cmd_grid.addWidget(self.zero_btn, 1, 0)
+        cmd_grid.addWidget(self.go_zero_btn, 1, 1)
+        cmd_grid.addWidget(self.go_work_zero_btn, 1, 2)
+        cmd_grid.addWidget(self.reset_btn, 1, 3)
+        cmd_grid.addWidget(self.estop_btn, 1, 4)
+
         L.addWidget(self.cmd_box)
 
-        # B. Jogging Control (ปุ่มขยับเครื่อง)
+        # B. Jogging Control — Professional CNC Pendant Design
         self.jog_box = QGroupBox(tr("grp_jog"))
         jl = QHBoxLayout(self.jog_box)
-        
-        grid = QGridLayout()
-        self.btn_y_plus = _btn("Y+"); self.btn_y_minus = _btn("Y-")
-        self.btn_x_plus = _btn("X+"); self.btn_x_minus = _btn("X-")
-        self.btn_z_plus = _btn("Z+"); self.btn_z_minus = _btn("Z-")
-        self.jog_buttons = [self.btn_x_plus, self.btn_x_minus, self.btn_y_plus, self.btn_y_minus, self.btn_z_plus, self.btn_z_minus]
-        
-        grid.addWidget(self.btn_y_plus, 0, 1); grid.addWidget(self.btn_x_minus, 1, 0)
-        grid.addWidget(self.btn_x_plus, 1, 2); grid.addWidget(self.btn_y_minus, 2, 1)
-        grid.addWidget(self.btn_z_plus, 0, 3); grid.addWidget(self.btn_z_minus, 2, 3)
-        jl.addLayout(grid)
+        jl.setSpacing(12)
+
+        # -- D-Pad for X/Y --
+        dpad = QGridLayout()
+        dpad.setSpacing(3)
+
+        self.btn_y_plus = QPushButton("▲\nY+"); self.btn_y_plus.setStyleSheet(_JOG_XY_STYLE)
+        self.btn_y_minus = QPushButton("▼\nY-"); self.btn_y_minus.setStyleSheet(_JOG_XY_STYLE)
+        self.btn_x_plus = QPushButton("▶\nX+"); self.btn_x_plus.setStyleSheet(_JOG_XY_STYLE)
+        self.btn_x_minus = QPushButton("◀\nX-"); self.btn_x_minus.setStyleSheet(_JOG_XY_STYLE)
+
+        center_lbl = QLabel("X / Y")
+        center_lbl.setStyleSheet(_JOG_CENTER_STYLE)
+        center_lbl.setAlignment(Qt.AlignCenter)
+        center_lbl.setFixedSize(59, 59)
+
+        #        [  Y+  ]
+        # [ X- ] [  ⌂  ] [ X+ ]
+        #        [  Y-  ]
+        dpad.addWidget(self.btn_y_plus, 0, 1, Qt.AlignCenter)
+        dpad.addWidget(self.btn_x_minus, 1, 0, Qt.AlignCenter)
+        dpad.addWidget(center_lbl, 1, 1, Qt.AlignCenter)
+        dpad.addWidget(self.btn_x_plus, 1, 2, Qt.AlignCenter)
+        dpad.addWidget(self.btn_y_minus, 2, 1, Qt.AlignCenter)
+
+        jl.addLayout(dpad)
+
+        # -- Z Column --
+        z_col = QVBoxLayout()
+        z_col.setSpacing(3)
+
+        z_label = QLabel("Z")
+        z_label.setAlignment(Qt.AlignCenter)
+        z_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffb347;")
+
+        self.btn_z_plus = QPushButton("▲\nZ+"); self.btn_z_plus.setStyleSheet(_JOG_Z_STYLE)
+        self.btn_z_minus = QPushButton("▼\nZ-"); self.btn_z_minus.setStyleSheet(_JOG_Z_STYLE)
+
+        z_col.addWidget(z_label)
+        z_col.addWidget(self.btn_z_plus)
+        z_col.addWidget(self.btn_z_minus)
+        z_col.addStretch(1)
+
+        jl.addLayout(z_col)
+
+        self.jog_buttons = [self.btn_x_plus, self.btn_x_minus, self.btn_y_plus,
+                            self.btn_y_minus, self.btn_z_plus, self.btn_z_minus]
 
         # การตั้งค่า Jog (Step / Feed)
         jog_settings = QVBoxLayout()
@@ -121,6 +254,7 @@ class ControlPage(QWidget):
         
         jog_settings.addWidget(self.keyboard_cb); jog_settings.addWidget(self.auto_unlock_cb)
         jog_settings.addLayout(step_row); jog_settings.addLayout(feed_row)
+        jog_settings.addStretch(1)
         jl.addLayout(jog_settings)
         L.addWidget(self.jog_box)
 
@@ -265,10 +399,14 @@ class ControlPage(QWidget):
         self.status_box.setTitle(tr("grp_status"))
 
         self.cmd_box.setTitle(tr("grp_commands"))
-        self.home_btn.setText(tr("btn_home"))
+        self.home_all_btn.setText(tr("btn_home_all"))
+        self.home_x_btn.setText(tr("btn_home_x"))
+        self.home_y_btn.setText(tr("btn_home_y"))
+        self.home_z_btn.setText(tr("btn_home_z"))
         self.unlock_btn.setText(tr("btn_unlock"))
         self.zero_btn.setText(tr("btn_set_zero"))
         self.go_zero_btn.setText(tr("btn_go_zero"))
+        self.go_work_zero_btn.setText(tr("btn_go_work_zero"))
         self.reset_btn.setText(tr("btn_reset"))
         self.estop_btn.setText(tr("btn_estop"))
 
