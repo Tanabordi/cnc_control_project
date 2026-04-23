@@ -5,7 +5,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QGroupBox, QTextEdit, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QSplitter, QProgressBar, QGridLayout
+    QCheckBox, QSplitter, QProgressBar, QGridLayout,
+    QSpinBox, QDoubleSpinBox
 )
 
 from ops.gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
@@ -259,6 +260,10 @@ class RunPage(QWidget):
 
         self.set_connected(False)
         self.set_stream_state("idle")
+
+        # Disable scroll wheel on spinboxes
+        for w in self.findChildren(QSpinBox) + self.findChildren(QDoubleSpinBox):
+            w.wheelEvent = lambda event: event.ignore()
 
     def retranslate_ui(self):
         """Dynamically update all translatable text in the run page."""

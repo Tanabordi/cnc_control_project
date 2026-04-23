@@ -51,6 +51,7 @@ class GrblWorker(QThread):
         self._sim_y = 0.0
         self._sim_z = 0.0
         self._sim_queue = deque()
+        self._last_wco = (0.0, 0.0, 0.0)
 
     def set_poll_interval_ms(self, ms: int):
         self.poll_interval_ms = max(30, int(ms))
@@ -154,19 +155,29 @@ class GrblWorker(QThread):
         # --- Simulator bypass ---
         if self._is_sim:
             stripped = line.strip()
-            self.log.emit(f"> {stripped}")
+            if stripped.startswith("$J="):
+                self.log.emit(f"[JOG] Move {stripped[3:]} -> (Raw: {stripped})")
+            else:
+                self.log.emit(f"> {stripped}")
             self._sim_parse_and_update(stripped)
             self._sim_queue.append(stripped)
             return
 
-        cmd = (line.strip() + "\n").encode("ascii", errors="ignore")
+        stripped = line.strip()
+        cmd = (stripped + "\n").encode("ascii", errors="ignore")
         try:
             if self.connection_type == "serial" and self.ser and self.ser.is_open:
                 self.ser.write(cmd)
-                self.log.emit(f"> {line.strip()}")
+                if stripped.startswith("$J="):
+                    self.log.emit(f"[JOG] Move {stripped[3:]} -> (Raw: {stripped})")
+                else:
+                    self.log.emit(f"> {stripped}")
             elif self.connection_type == "tcp" and self.sock:
                 self.sock.sendall(cmd)
-                self.log.emit(f"> {line.strip()}")
+                if stripped.startswith("$J="):
+                    self.log.emit(f"[JOG] Move {stripped[3:]} -> (Raw: {stripped})")
+                else:
+                    self.log.emit(f"> {stripped}")
         except Exception as e:
             self.log.emit(f"Write error: {e}")
 
@@ -393,12 +404,23 @@ class GrblWorker(QThread):
                             mpos = None
                             wpos_str = extract_field(line, "WPos")
                             mpos_str = extract_field(line, "MPos")
+                            wco_str = extract_field(line, "WCO")
+                            
+                            if wco_str:
+                                wco_parsed = parse_xyz(wco_str)
+                                if wco_parsed:
+                                    self._last_wco = wco_parsed
+
                             if wpos_str:
                                 wpos = parse_xyz(wpos_str)
                             if mpos_str:
                                 mpos = parse_xyz(mpos_str)
+                                
                             if wpos is None and mpos is not None:
-                                wpos = mpos
+                                wpos = (mpos[0] - self._last_wco[0], mpos[1] - self._last_wco[1], mpos[2] - self._last_wco[2])
+                            elif mpos is None and wpos is not None:
+                                mpos = (wpos[0] + self._last_wco[0], wpos[1] + self._last_wco[1], wpos[2] + self._last_wco[2])
+
                             if wpos:
                                 pn_str = extract_field(line, "Pn")
                                 payload = {"state": state, "wpos": wpos, "mpos": mpos, "pn": pn_str or "", "raw": line}

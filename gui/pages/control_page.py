@@ -209,7 +209,7 @@ class ControlPage(QWidget):
 
         # ----- ฝั่งซ้าย: แผงควบคุมทั้งหมด (มี Scroll Bar) -----
         left = QWidget()
-        left.setMinimumWidth(380)
+        left.setMinimumWidth(320)
         L = QVBoxLayout(left)
         L.setContentsMargins(0, 0, 4, 0)
         
@@ -247,7 +247,9 @@ class ControlPage(QWidget):
 
         # B. Jogging Control — Professional CNC Pendant Design
         self.jog_box = QGroupBox(tr("grp_jog"))
-        jl = QHBoxLayout(self.jog_box)
+        jog_vbox = QVBoxLayout(self.jog_box)
+        jl = QHBoxLayout()
+        jog_vbox.addLayout(jl)
         jl.setSpacing(12)
 
         # -- D-Pad for X/Y --
@@ -301,22 +303,21 @@ class ControlPage(QWidget):
         self.keyboard_cb = QCheckBox(tr("cb_keyboard_jog")); self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))
         step_row = QHBoxLayout(); self.step_lbl = QLabel(tr("lbl_step")); step_row.addWidget(self.step_lbl)
         self.step_mode = QComboBox(); self.step_mode.addItems(["0.1", "1", "10", "Custom"])
-        self.step_mm = QDoubleSpinBox(); self.step_mm.setEnabled(False)
+        self.step_mm = QDoubleSpinBox(); self.step_mm.setEnabled(False); self.step_mm.setSuffix(" mm")
         step_row.addWidget(self.step_mode); step_row.addWidget(self.step_mm)
         
         feed_row = QHBoxLayout(); self.feed_lbl = QLabel(tr("lbl_feed")); feed_row.addWidget(self.feed_lbl)
-        self.feed = QSpinBox(); self.feed.setRange(1, 20000); self.feed.setValue(1000)
+        self.feed = QSpinBox(); self.feed.setRange(1, 20000); self.feed.setValue(1000); self.feed.setSuffix(" mm/min")
         feed_row.addWidget(self.feed)
         
         jog_settings.addWidget(self.keyboard_cb); jog_settings.addWidget(self.auto_unlock_cb)
         jog_settings.addLayout(step_row); jog_settings.addLayout(feed_row)
         jog_settings.addStretch(1)
         jl.addLayout(jog_settings)
-        L.addWidget(self.jog_box)
-
-        # C. Move to Target (พิมพ์พิกัดแล้ววิ่งไป)
-        self.tgt_box = QGroupBox(tr("grp_move_target"))
-        tgt_row = QHBoxLayout(self.tgt_box)
+        
+        # C. Move to Target (พิมพ์พิกัดแล้ววิ่งไป) - Moved inside Jog Control
+        tgt_row = QHBoxLayout()
+        tgt_row.setContentsMargins(0, 8, 0, 0)
         self.tx = QDoubleSpinBox(); self.tx.setRange(-999, 999); self.tx.setDecimals(3)
         self.ty = QDoubleSpinBox(); self.ty.setRange(-999, 999); self.ty.setDecimals(3)
         self.tz = QDoubleSpinBox(); self.tz.setRange(-999, 999); self.tz.setDecimals(3)
@@ -324,25 +325,30 @@ class ControlPage(QWidget):
         for lbl, widget in [("X:", self.tx), ("Y:", self.ty), ("Z:", self.tz)]:
             tgt_row.addWidget(QLabel(lbl)); tgt_row.addWidget(widget)
         tgt_row.addWidget(self.move_btn)
-        L.addWidget(self.tgt_box)
+        jog_vbox.addLayout(tgt_row)
+        
+        L.addWidget(self.jog_box)
+
+
 
         # D. Project & Waypoint Actions (ปุ่มนำเข้า/ส่งออกที่เคยหายไป)
         self.action_box = QGroupBox(tr("grp_project"))
         al = QVBoxLayout(self.action_box)
         
         # แถมบน: การตั้งค่า Waypoint
-        teach = QHBoxLayout()
-        self.wp_feed = QSpinBox(); self.wp_feed.setRange(1, 20000); self.wp_feed.setValue(1200)
-        self.wp_laser_time = QDoubleSpinBox(); self.wp_laser_time.setValue(0.50)
+        teach = QGridLayout()
+        self.wp_feed = QSpinBox(); self.wp_feed.setRange(1, 20000); self.wp_feed.setValue(1200); self.wp_feed.setSuffix(" mm/min")
+        self.wp_laser_time = QDoubleSpinBox(); self.wp_laser_time.setValue(0.50); self.wp_laser_time.setSuffix(" s")
         self.wp_z_safe = QDoubleSpinBox(); self.wp_z_safe.setRange(-999, 0); self.wp_z_safe.setValue(-2.0)
         self.wp_power = QSpinBox(); self.wp_power.setRange(0, 255); self.wp_power.setValue(255)
         self.teach_labels = []
-        for lbl_key, widget in [("lbl_wp_feed", self.wp_feed), ("lbl_wp_time", self.wp_laser_time),
-                                ("lbl_wp_zsafe", self.wp_z_safe), ("lbl_wp_power", self.wp_power)]:
+        for i, (lbl_key, widget) in enumerate([("lbl_wp_feed", self.wp_feed), ("lbl_wp_time", self.wp_laser_time),
+                                               ("lbl_wp_zsafe", self.wp_z_safe), ("lbl_wp_power", self.wp_power)]):
             lbl = QLabel(tr(lbl_key))
             lbl._i18n_key = lbl_key
             self.teach_labels.append(lbl)
-            teach.addWidget(lbl); teach.addWidget(widget)
+            teach.addWidget(lbl, i // 2, (i % 2) * 2)
+            teach.addWidget(widget, i // 2, (i % 2) * 2 + 1)
         al.addLayout(teach)
 
         # แถวปุ่มปฏิบัติการ
@@ -362,13 +368,40 @@ class ControlPage(QWidget):
         self.clear_btn = _btn(tr("btn_clear_all"))
         self.preview3d_btn = _btn(tr("btn_3d_preview"))
 
-        btn_grid = QGridLayout()
-        btn_grid.addWidget(self.load_csv_pcb_btn, 0, 0); btn_grid.addWidget(self.load_points_gcode_btn, 0, 1); btn_grid.addWidget(self.preview3d_btn, 0, 2)
-        btn_grid.addWidget(self.save_waypoints_btn, 1, 0); btn_grid.addWidget(self.load_waypoints_btn, 1, 1); btn_grid.addWidget(self.export_gcode_btn, 1, 2)
-        btn_grid.addWidget(self.capture_btn, 2, 0); btn_grid.addWidget(self.update_btn, 2, 1); btn_grid.addWidget(self.export_panel_btn, 2, 2)
-        btn_grid.addWidget(self.delete_btn, 3, 0); btn_grid.addWidget(self.clear_btn, 3, 1)
-        btn_grid.addWidget(self.import_vector_btn, 4, 0); btn_grid.addWidget(self.import_image_btn, 4, 1)
-        al.addLayout(btn_grid)
+        def hline():
+            f = QFrame()
+            f.setFrameShape(QFrame.HLine)
+            f.setFrameShadow(QFrame.Sunken)
+            return f
+
+        # 1. File Operations
+        file_ops = QGridLayout()
+        file_ops.addWidget(self.load_points_gcode_btn, 0, 0)
+        file_ops.addWidget(self.load_waypoints_btn, 0, 1)
+        file_ops.addWidget(self.save_waypoints_btn, 0, 2)
+        file_ops.addWidget(self.load_csv_pcb_btn, 1, 0)
+        file_ops.addWidget(self.import_vector_btn, 1, 1)
+        file_ops.addWidget(self.import_image_btn, 1, 2)
+
+        # 2. Waypoint Actions
+        wp_ops = QHBoxLayout()
+        wp_ops.addWidget(self.capture_btn)
+        wp_ops.addWidget(self.update_btn)
+        wp_ops.addWidget(self.delete_btn)
+        wp_ops.addWidget(self.clear_btn)
+
+        # 3. Export Operations
+        exp_ops = QHBoxLayout()
+        exp_ops.addWidget(self.export_gcode_btn)
+        exp_ops.addWidget(self.export_panel_btn)
+        exp_ops.addWidget(self.preview3d_btn)
+        
+        al.addWidget(hline())
+        al.addLayout(file_ops)
+        al.addWidget(hline())
+        al.addLayout(wp_ops)
+        al.addWidget(hline())
+        al.addLayout(exp_ops)
         L.addWidget(self.action_box)
         
         L.addStretch(1) # ดันไม่ให้ปุ่มแตกกระจาย
@@ -421,7 +454,6 @@ class ControlPage(QWidget):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(150)
         
         self.log_view.setStyleSheet("""
             QTextEdit {
@@ -440,9 +472,13 @@ class ControlPage(QWidget):
         splitter.addWidget(left_scroll)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1) # ฝั่งปุ่ม
-        splitter.setStretchFactor(1, 2) # ฝั่งตารางกว้างกว่า
+        splitter.setStretchFactor(1, 3) # ฝั่งตารางกว้างกว่า
         
         root.addWidget(splitter)
+        
+        # Disable scroll wheel on spinboxes
+        for w in self.findChildren(QSpinBox) + self.findChildren(QDoubleSpinBox):
+            w.wheelEvent = lambda event: event.ignore()
 
     def _toggle_conn_type(self):
         if self.radio_serial.isChecked():
@@ -478,7 +514,6 @@ class ControlPage(QWidget):
         self.step_lbl.setText(tr("lbl_step"))
         self.feed_lbl.setText(tr("lbl_feed"))
 
-        self.tgt_box.setTitle(tr("grp_move_target"))
         self.move_btn.setText(tr("btn_move"))
 
         self.action_box.setTitle(tr("grp_project"))
