@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QGroupBox, QTextEdit, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QSplitter, QProgressBar
+    QCheckBox, QSplitter, QProgressBar, QGridLayout
 )
 
 from ops.gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
@@ -131,27 +131,28 @@ class RunPage(QWidget):
         R.addWidget(self.state_box)
 
         # Action buttons
-        self.home_btn     = _btn(tr("btn_home_h"))
-        self.unlock_btn   = _btn(tr("btn_unlock_x"))
-        self.zero_btn     = _btn(tr("btn_set_zero_g54"))
-        self.go_zero_btn  = _btn(tr("btn_go_zero_g53"))
-        self.reset_btn2   = _btn(tr("btn_reset_ctrl_x"))
-        self.auto_unlock_cb = QCheckBox(tr("cb_auto_x_reset"))
-        self.estop_btn    = _btn(tr("btn_run_estop"))
+        self.cmd_box = QGroupBox(tr("grp_commands"))
+        cmd_layout = QGridLayout(self.cmd_box)
+        
+        self.home_btn     = _btn(tr("btn_home"))
+        self.unlock_btn   = _btn(tr("btn_unlock"))
+        self.zero_btn     = _btn(tr("btn_set_zero"))
+        self.go_zero_btn  = _btn(tr("btn_go_zero"))
+        self.reset_btn2   = _btn(tr("btn_reset"))
+        self.estop_btn    = _btn(tr("btn_estop"))
+        self.estop_btn.setObjectName("estop_btn")
 
-        act1 = QHBoxLayout()
-        act1.addWidget(self.home_btn, 1)
-        act1.addWidget(self.unlock_btn, 1)
-        act2 = QHBoxLayout()
-        act2.addWidget(self.zero_btn, 1)
-        act2.addWidget(self.go_zero_btn, 1)
-        act3 = QHBoxLayout()
-        act3.addWidget(self.reset_btn2, 2)
-        act3.addWidget(self.auto_unlock_cb, 2)
-        act3.addWidget(self.estop_btn, 1)
-        R.addLayout(act1)
-        R.addLayout(act2)
-        R.addLayout(act3)
+        cmd_layout.addWidget(self.home_btn, 0, 0)
+        cmd_layout.addWidget(self.unlock_btn, 0, 1)
+        cmd_layout.addWidget(self.zero_btn, 1, 0)
+        cmd_layout.addWidget(self.go_zero_btn, 1, 1)
+        cmd_layout.addWidget(self.reset_btn2, 2, 0)
+        cmd_layout.addWidget(self.estop_btn, 2, 1)
+        
+        R.addWidget(self.cmd_box)
+        
+        self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))
+        R.addWidget(self.auto_unlock_cb)
 
         # Log
         self.log_grp = QGroupBox(tr("grp_log"))
@@ -256,13 +257,14 @@ class RunPage(QWidget):
         self.status_label.setText(tr("lbl_status"))
         self.pins_label.setText(tr("lbl_pins"))
 
-        self.home_btn.setText(tr("btn_home_h"))
-        self.unlock_btn.setText(tr("btn_unlock_x"))
-        self.zero_btn.setText(tr("btn_set_zero_g54"))
-        self.go_zero_btn.setText(tr("btn_go_zero_g53"))
-        self.reset_btn2.setText(tr("btn_reset_ctrl_x"))
-        self.auto_unlock_cb.setText(tr("cb_auto_x_reset"))
-        self.estop_btn.setText(tr("btn_run_estop"))
+        self.cmd_box.setTitle(tr("grp_commands"))
+        self.home_btn.setText(tr("btn_home"))
+        self.unlock_btn.setText(tr("btn_unlock"))
+        self.zero_btn.setText(tr("btn_set_zero"))
+        self.go_zero_btn.setText(tr("btn_go_zero"))
+        self.reset_btn2.setText(tr("btn_reset"))
+        self.auto_unlock_cb.setText(tr("cb_auto_unlock"))
+        self.estop_btn.setText(tr("btn_estop"))
 
         self.log_grp.setTitle(tr("grp_log"))
         self.console_grp.setTitle(tr("grp_run_console"))
@@ -334,6 +336,18 @@ class RunPage(QWidget):
 
     # ---- Stream state ----
     def set_stream_state(self, st: str):
+        is_running = st in ("running", "paused")
+        dangerous_btns = [
+            self.home_btn, self.unlock_btn, self.zero_btn,
+            self.go_zero_btn, self.reset_btn2, self.load_btn, self.reset_btn
+        ]
+        
+        if is_running:
+            _set_enabled(dangerous_btns, False)
+        else:
+            if self.app.controller.is_connected():
+                _set_enabled(dangerous_btns, True)
+                
         if st == "running":
             if self._stream_start_time == 0.0:
                 self._stream_start_time = time.time()

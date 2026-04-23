@@ -283,7 +283,7 @@ class VectorImportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Import Vector File (SVG / DXF)")
         self.setModal(True)
-        self.resize(900, 620)
+        self.setMinimumSize(800, 600)
 
         self._filepath: Optional[str] = None
         self._polylines: List[List[Tuple[float, float]]] = []
@@ -319,7 +319,7 @@ class VectorImportDialog(QDialog):
 
         # ===== Right: controls =====
         right_w = QWidget()
-        right_w.setFixedWidth(320)
+        right_w.setMinimumWidth(320)
         rv = QVBoxLayout(right_w)
         rv.setSpacing(8)
 
@@ -440,7 +440,12 @@ class VectorImportDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         rv.addWidget(cancel_btn)
 
-        main.addWidget(right_w)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(340)
+        scroll.setWidget(right_w)
+        main.addWidget(scroll)
 
     # --------------------------------------------------------------- slots --
 

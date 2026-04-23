@@ -170,7 +170,7 @@ class PcbCalibDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Import PCB CSV — Calibration")
         self.setModal(True)
-        self.resize(1050, 720)
+        self.setMinimumSize(800, 600)
 
         self.components = components
         self.worker = worker
@@ -237,9 +237,9 @@ class PcbCalibDialog(QDialog):
 
         main.addWidget(left_w, 1)
 
-        # ===== Right: controls (fixed width) =====
+        # ===== Right: controls =====
         right_w = QWidget()
-        right_w.setFixedWidth(370)
+        right_w.setMinimumWidth(320)
         rv = QVBoxLayout(right_w)
         rv.setSpacing(8)
 
@@ -392,7 +392,12 @@ class PcbCalibDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         rv.addWidget(cancel_btn)
 
-        main.addWidget(right_w)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(340)
+        scroll.setWidget(right_w)
+        main.addWidget(scroll)
 
     # --------------------------------------------------------------- slots --
 
@@ -657,7 +662,7 @@ class PanelExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Export Panel G-code — Calibration")
         self.setModal(True)
-        self.resize(1050, 720)
+        self.setMinimumSize(800, 600)
 
         self.points = points
         self.worker = worker
@@ -701,7 +706,7 @@ class PanelExportDialog(QDialog):
 
         # ===== Right: controls =====
         right_w = QWidget()
-        right_w.setFixedWidth(390)
+        right_w.setMinimumWidth(320)
         rv = QVBoxLayout(right_w)
         rv.setSpacing(8)
 
@@ -858,7 +863,12 @@ class PanelExportDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         rv.addWidget(cancel_btn)
 
-        main.addWidget(right_w)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(340)
+        scroll.setWidget(right_w)
+        main.addWidget(scroll)
 
     # --------------------------------------------------------------- slots --
 

@@ -77,6 +77,7 @@ class ControlPage(QWidget):
 
         # ----- ฝั่งซ้าย: แผงควบคุมทั้งหมด (มี Scroll Bar) -----
         left = QWidget()
+        left.setMinimumWidth(340)
         L = QVBoxLayout(left)
         L.setContentsMargins(0, 0, 4, 0)
         

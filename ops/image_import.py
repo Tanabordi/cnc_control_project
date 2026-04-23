@@ -183,7 +183,7 @@ class ImageImportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Import Image — Edge Tracing")
         self.setModal(True)
-        self.resize(1000, 660)
+        self.setMinimumSize(800, 600)
 
         self._filepath: Optional[str] = None
         self._img_bgr: Optional[np.ndarray] = None
@@ -220,7 +220,7 @@ class ImageImportDialog(QDialog):
 
         # ===== Right: controls =====
         right_w = QWidget()
-        right_w.setFixedWidth(340)
+        right_w.setMinimumWidth(320)
         rv = QVBoxLayout(right_w)
         rv.setSpacing(8)
 
@@ -348,7 +348,12 @@ class ImageImportDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         rv.addWidget(cancel_btn)
 
-        main.addWidget(right_w)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(340)
+        scroll.setWidget(right_w)
+        main.addWidget(scroll)
 
     # --------------------------------------------------------------- slots --
 

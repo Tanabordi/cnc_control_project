@@ -134,24 +134,42 @@ class GrblWorker(QThread):
             self.log.emit(f"Write error: {e}")
 
     def _sim_parse_and_update(self, line: str):
-        """Parse a G-code line and update simulated position (absolute coords)."""
+        """Parse a G-code line and update simulated position (absolute/relative)."""
         # Handle both normal G-code (G0/G1 X.. Y.. Z..) and jog ($J=...)
-        text = line
-        if text.upper().startswith("$J="):
+        text = line.upper()
+        if text.startswith("$J="):
             text = text[3:]  # strip '$J=' prefix
 
-        m_x = re.search(r'[Xx]([\-+]?\d*\.?\d+)', text)
-        m_y = re.search(r'[Yy]([\-+]?\d*\.?\d+)', text)
-        m_z = re.search(r'[Zz]([\-+]?\d*\.?\d+)', text)
+        is_relative = "G91" in text
+
+        m_x = re.search(r'[X]([\-+]?\d*\.?\d+)', text)
+        m_y = re.search(r'[Y]([\-+]?\d*\.?\d+)', text)
+        m_z = re.search(r'[Z]([\-+]?\d*\.?\d+)', text)
+        
         if m_x:
-            self._sim_x = float(m_x.group(1))
+            val = float(m_x.group(1))
+            if is_relative:
+                self._sim_x += val
+            else:
+                self._sim_x = val
         if m_y:
-            self._sim_y = float(m_y.group(1))
+            val = float(m_y.group(1))
+            if is_relative:
+                self._sim_y += val
+            else:
+                self._sim_y = val
         if m_z:
-            self._sim_z = float(m_z.group(1))
+            val = float(m_z.group(1))
+            if is_relative:
+                self._sim_z += val
+            else:
+                self._sim_z = val
 
     def send_reset(self):
         self._write_raw(b"\x18")
+        self._stop_stream_internal("error")
+        if self._is_sim:
+            self._sim_queue.clear()
         self.log.emit("> [CTRL+X reset]")
 
     def jog_cancel(self):
@@ -162,6 +180,9 @@ class GrblWorker(QThread):
         self._write_raw(b"!")
         time.sleep(0.05)
         self._write_raw(b"\x18")
+        self._stop_stream_internal("error")
+        if self._is_sim:
+            self._sim_queue.clear()
         self.log.emit("> [E-STOP: HOLD ! + CTRL+X]")
 
     def stop_run_estop(self):
@@ -173,7 +194,9 @@ class GrblWorker(QThread):
             pass
         self._write_raw(b"\x18")
         time.sleep(0.1)
-        self._stop_stream_internal("idle")
+        self._stop_stream_internal("error")
+        if self._is_sim:
+            self._sim_queue.clear()
         self.log.emit("> [STOP RUN: E-STOP style (! + M5 + CTRL+X) + clear stream]")
 
     # ---- Streaming ----
