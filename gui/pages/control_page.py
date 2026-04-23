@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QComboBox, QSpinBox, QDoubleSpinBox, QSizePolicy,
     QTableWidget, QHeaderView, QTextEdit, QLineEdit,
     QApplication, QSplitter, QScrollArea, QFrame, QCheckBox, QGridLayout,
-    QPushButton
+    QPushButton, QRadioButton, QStackedWidget
 )
 from PySide6.QtCore import Qt
 from core.utils import _btn
@@ -104,19 +104,75 @@ class ControlPage(QWidget):
         
         # 1. Connection (ซ้ายบน)
         self.conn_box = QGroupBox(tr("grp_connection"))
-        c = QHBoxLayout(self.conn_box)
+        c = QVBoxLayout(self.conn_box)
         c.setContentsMargins(6, 6, 6, 6)
+
+        # Radio Row (Serial / TCP)
+        radio_row = QHBoxLayout()
+        self.radio_serial = QRadioButton("Serial")
+        self.radio_tcp = QRadioButton("TCP/IP")
+        self.radio_serial.setChecked(True)
+        radio_row.addWidget(self.radio_serial)
+        radio_row.addWidget(self.radio_tcp)
+        radio_row.addStretch(1)
+        c.addLayout(radio_row)
+
+        # Inputs Row
+        self.conn_inputs = QStackedWidget()
+        
+        # --- Serial Widget ---
+        self.serial_widget = QWidget()
+        s_layout = QHBoxLayout(self.serial_widget)
+        s_layout.setContentsMargins(0, 0, 0, 0)
+        self.port_lbl = QLabel(tr("lbl_port"))
         self.port_box = QComboBox()
         self.refresh_btn = _btn(tr("btn_refresh"), enabled=True)
+        s_layout.addWidget(self.port_lbl)
+        s_layout.addWidget(self.port_box, 1)
+        s_layout.addWidget(self.refresh_btn)
+        self.conn_inputs.addWidget(self.serial_widget)
+
+        # --- TCP Widget ---
+        self.tcp_widget = QWidget()
+        t_layout = QHBoxLayout(self.tcp_widget)
+        t_layout.setContentsMargins(0, 0, 0, 0)
+        self.ip_lbl = QLabel("IP:")
+        self.ip_input = QLineEdit()
+        self.ip_input.setPlaceholderText("192.168.1.24")
+        self.port_tcp_lbl = QLabel("Port:")
+        
+        self.port_tcp_input = QSpinBox()
+        self.port_tcp_input.setRange(1, 65535)
+        self.port_tcp_input.setValue(8080)
+        self.port_tcp_input.setFixedWidth(65)
+        self.port_tcp_input.setToolTip("พอร์ตมาตรฐานสำหรับ MKS คือ 8080, สำหรับ Telnet คือ 23")
+        
+        self.test_tcp_btn = _btn("Test", enabled=True)
+        self.test_tcp_btn.setToolTip("ทดสอบการเชื่อมต่อ (Ping Port)")
+        
+        t_layout.addWidget(self.ip_lbl)
+        t_layout.addWidget(self.ip_input, 1)
+        t_layout.addWidget(self.port_tcp_lbl)
+        t_layout.addWidget(self.port_tcp_input)
+        t_layout.addWidget(self.test_tcp_btn)
+        self.conn_inputs.addWidget(self.tcp_widget)
+
+        c.addWidget(self.conn_inputs)
+
+        # Buttons Row
+        btn_row = QHBoxLayout()
         self.connect_btn = _btn(tr("btn_connect"), enabled=True)
         self.connect_btn.setObjectName("connect_btn")
         self.disconnect_btn = _btn(tr("btn_disconnect"), enabled=False)
-        self.port_lbl = QLabel(tr("lbl_port"))
-        c.addWidget(self.port_lbl)
-        c.addWidget(self.port_box, 1)
-        c.addWidget(self.refresh_btn)
-        c.addWidget(self.connect_btn)
-        c.addWidget(self.disconnect_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.connect_btn)
+        btn_row.addWidget(self.disconnect_btn)
+        c.addLayout(btn_row)
+
+        # Connect signals for radio toggling
+        self.radio_serial.toggled.connect(self._toggle_conn_type)
+        self.radio_tcp.toggled.connect(self._toggle_conn_type)
+
         top_bar.addWidget(self.conn_box, 1)
 
         # 2. Machine Status (ขวาบน - ข้อมูลที่สำคัญที่สุดสำหรับ PCB)
@@ -387,6 +443,12 @@ class ControlPage(QWidget):
         splitter.setStretchFactor(1, 2) # ฝั่งตารางกว้างกว่า
         
         root.addWidget(splitter)
+
+    def _toggle_conn_type(self):
+        if self.radio_serial.isChecked():
+            self.conn_inputs.setCurrentWidget(self.serial_widget)
+        else:
+            self.conn_inputs.setCurrentWidget(self.tcp_widget)
 
     def retranslate_ui(self):
         """Dynamically update all translatable text in the control page."""

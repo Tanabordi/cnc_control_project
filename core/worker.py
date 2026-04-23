@@ -1,6 +1,8 @@
 import re
 import time
 from collections import deque
+import socket
+import select
 
 import serial
 
@@ -24,7 +26,9 @@ class GrblWorker(QThread):
 
     def __init__(self):
         super().__init__()
+        self.connection_type = "serial"
         self.ser = None
+        self.sock = None
         self.port = None
         self.baud = 115200
         self._running = False
@@ -52,6 +56,7 @@ class GrblWorker(QThread):
         self.poll_interval_ms = max(30, int(ms))
 
     def connect_serial(self, port: str, baud: int = 115200):
+        self.connection_type = "serial"
         self.port = port
         self.baud = baud
 
@@ -86,6 +91,29 @@ class GrblWorker(QThread):
             self.ser = None
             return False
 
+    def connect_tcp(self, ip: str, port: int):
+        self.connection_type = "tcp"
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(5.0)
+            self.sock.connect((ip, port))
+            self.sock.settimeout(0.1)  # Non-blocking-ish for the run loop
+            time.sleep(0.25)
+            try:
+                self.sock.sendall(b"\r\n\r\n")
+                time.sleep(0.1)
+            except Exception:
+                pass
+            self.connected.emit(True)
+            self.log.emit(f"Connected TCP: {ip}:{port}")
+            return True
+        except Exception as e:
+            self.log.emit(f"TCP Connect error: {e}")
+            self.log.emit("โปรดตรวจสอบว่าเลข Port ถูกต้องตามการตั้งค่าของบอร์ด")
+            self.connected.emit(False)
+            self.sock = None
+            return False
+
     def disconnect_serial(self):
         self._running = False
         self._stop_stream_internal("idle")
@@ -103,15 +131,22 @@ class GrblWorker(QThread):
                 self.ser.close()
         except Exception:
             pass
+        try:
+            if self.sock:
+                self.sock.close()
+        except Exception:
+            pass
         self.ser = None
+        self.sock = None
         self.connected.emit(False)
         self.log.emit("Disconnected")
 
     def _write_raw(self, b: bytes):
-        if not self.ser or not self.ser.is_open:
-            return
         try:
-            self.ser.write(b)
+            if self.connection_type == "serial" and self.ser and self.ser.is_open:
+                self.ser.write(b)
+            elif self.connection_type == "tcp" and self.sock:
+                self.sock.sendall(b)
         except Exception as e:
             self.log.emit(f"Write error: {e}")
 
@@ -124,12 +159,14 @@ class GrblWorker(QThread):
             self._sim_queue.append(stripped)
             return
 
-        if not self.ser or not self.ser.is_open:
-            return
         cmd = (line.strip() + "\n").encode("ascii", errors="ignore")
         try:
-            self.ser.write(cmd)
-            self.log.emit(f"> {line.strip()}")
+            if self.connection_type == "serial" and self.ser and self.ser.is_open:
+                self.ser.write(cmd)
+                self.log.emit(f"> {line.strip()}")
+            elif self.connection_type == "tcp" and self.sock:
+                self.sock.sendall(cmd)
+                self.log.emit(f"> {line.strip()}")
         except Exception as e:
             self.log.emit(f"Write error: {e}")
 
@@ -201,10 +238,15 @@ class GrblWorker(QThread):
 
     # ---- Streaming ----
     def start_stream(self, gcode_lines: list[str]):
-        if not self._is_sim and (not self.ser or not self.ser.is_open):
-            self.stream_state.emit("error")
-            self.log.emit("Stream error: not connected")
-            return
+        if not self._is_sim:
+            if self.connection_type == "serial" and (not self.ser or not self.ser.is_open):
+                self.stream_state.emit("error")
+                self.log.emit("Stream error: serial not connected")
+                return
+            if self.connection_type == "tcp" and not self.sock:
+                self.stream_state.emit("error")
+                self.log.emit("Stream error: TCP not connected")
+                return
 
         self._mutex.lock()
         try:
@@ -286,6 +328,8 @@ class GrblWorker(QThread):
     # ---- Thread loop ----
     def run(self):
         self._running = True
+        tcp_buffer = b""
+
         while self._running:
             # --- Simulator bypass ---
             if self._is_sim:
@@ -293,7 +337,10 @@ class GrblWorker(QThread):
                 time.sleep(self.poll_interval_ms / 1000.0)
                 continue
 
-            if not self.ser or not self.ser.is_open:
+            if self.connection_type == "serial" and (not self.ser or not self.ser.is_open):
+                time.sleep(0.1)
+                continue
+            if self.connection_type == "tcp" and not self.sock:
                 time.sleep(0.1)
                 continue
 
@@ -301,16 +348,40 @@ class GrblWorker(QThread):
                 time.sleep(0.05)
                 continue
 
-            try:
-                self.ser.write(b"?")
-            except Exception:
-                time.sleep(0.1)
-                continue
+            self._write_raw(b"?")
 
             try:
-                data = self.ser.read(4096)
+                data = b""
+                if self.connection_type == "serial" and self.ser:
+                    data = self.ser.read(4096)
+                elif self.connection_type == "tcp" and self.sock:
+                    try:
+                        readable, _, _ = select.select([self.sock], [], [], 0.0)
+                        if readable:
+                            data = self.sock.recv(4096)
+                            if not data:
+                                self.log.emit("TCP Connection closed by remote host")
+                                self.disconnect_serial()
+                                continue
+                    except socket.timeout:
+                        pass
+                    except Exception as e:
+                        self.log.emit(f"TCP read error: {e}")
+                        self.disconnect_serial()
+                        continue
+
                 if data:
-                    text = data.decode("ascii", errors="ignore")
+                    if self.connection_type == "tcp":
+                        tcp_buffer += data
+                        if b'\n' in tcp_buffer:
+                            lines = tcp_buffer.split(b'\n')
+                            tcp_buffer = lines.pop()
+                            text = b'\n'.join(lines).decode("ascii", errors="ignore")
+                        else:
+                            text = ""
+                    else:
+                        text = data.decode("ascii", errors="ignore")
+
                     for line in text.splitlines():
                         line = line.strip()
                         if not line:

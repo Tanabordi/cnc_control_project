@@ -7,7 +7,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolButton, QMenu, QStackedWidget, QComboBox,
-    QMessageBox, QFileDialog, QDialog,
+    QMessageBox, QFileDialog, QDialog, QApplication
 )
 
 from core.models import Point
@@ -143,6 +143,7 @@ class MainWindow(QWidget):
         self.control_page.refresh_btn.clicked.connect(self.refresh_ports)
         self.control_page.connect_btn.clicked.connect(self.do_connect)
         self.control_page.disconnect_btn.clicked.connect(self.do_disconnect)
+        self.control_page.test_tcp_btn.clicked.connect(self.test_tcp_connection)
 
         # เสียบสายไฟให้ปุ่ม Jog (ขยับแกน)
         self.control_page.step_mode.currentTextChanged.connect(self.on_step_mode)
@@ -162,10 +163,18 @@ class MainWindow(QWidget):
         self.settings_page.load_into_ui(self.settings)
         self.apply_settings_to_runtime()
 
-        if self.settings.last_port:
-            idx = self.control_page.port_box.findText(self.settings.last_port)
-            if idx >= 0:
-                self.control_page.port_box.setCurrentIndex(idx)
+        # Load connection settings into UI
+        if self.settings.connection_type == "tcp":
+            self.control_page.radio_tcp.setChecked(True)
+        else:
+            self.control_page.radio_serial.setChecked(True)
+            if self.settings.last_port:
+                idx = self.control_page.port_box.findText(self.settings.last_port)
+                if idx >= 0:
+                    self.control_page.port_box.setCurrentIndex(idx)
+
+        self.control_page.ip_input.setText(self.settings.ip_address)
+        self.control_page.port_tcp_input.setValue(int(self.settings.tcp_port))
 
     # -------- Language --------
     def _on_language_changed(self, index: int):
@@ -252,16 +261,58 @@ class MainWindow(QWidget):
         self.on_log(f"Found ports: {', '.join(ports) if ports else '(none)'}")
 
     def do_connect(self):
-        """Connect to serial port."""
-        port = self.control_page.port_box.currentText().strip()
-        if not port:
-            QMessageBox.warning(self, "No Port", "Please select a COM port.")
-            return
-        self.settings.last_port = port
-        save_settings(self.settings)
-        ok = self.worker.connect_serial(port, int(self.settings.baud))
+        """Connect to serial port or TCP socket."""
+        cp = self.control_page
+        if cp.radio_serial.isChecked():
+            # Serial Connection
+            port = cp.port_box.currentText().strip()
+            if not port:
+                QMessageBox.warning(self, "No Port", "Please select a COM port.")
+                return
+            self.settings.connection_type = "serial"
+            self.settings.last_port = port
+            save_settings(self.settings)
+            ok = self.worker.connect_serial(port, int(self.settings.baud))
+        else:
+            # TCP Connection
+            ip = cp.ip_input.text().strip()
+            if not ip:
+                QMessageBox.warning(self, "Invalid Input", "Please enter a valid IP address.")
+                return
+            port = cp.port_tcp_input.value()
+            self.settings.connection_type = "tcp"
+            self.settings.ip_address = ip
+            self.settings.tcp_port = port
+            save_settings(self.settings)
+            ok = self.worker.connect_tcp(ip, port)
+
         if ok and not self.worker.isRunning():
             self.worker.start()
+
+    def test_tcp_connection(self):
+        """Test TCP connection without starting the main worker loop."""
+        import socket
+        ip = self.control_page.ip_input.text().strip()
+        port = self.control_page.port_tcp_input.value()
+        if not ip:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid IP address.")
+            return
+
+        self.on_log(f"Testing TCP connection to {ip}:{port}...")
+        QApplication.processEvents()  # Force UI to update log before blocking
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(3.0)
+                s.connect((ip, port))
+            self.on_log("Test Connection OK: บอร์ดตอบสนองสำเร็จ!")
+            QMessageBox.information(self, "Test TCP", f"Connection to {ip}:{port} successful!")
+        except Exception as e:
+            self.on_log(f"Test Connection Failed: {e}")
+            self.on_log("โปรดตรวจสอบว่าเลข Port ถูกต้องตามการตั้งค่าของบอร์ด หรือตรวจสอบการเชื่อมต่อ WiFi/LAN")
+            QMessageBox.critical(self, "Test TCP", f"Connection failed:\n{e}\n\nโปรดตรวจสอบว่าเลข Port ถูกต้อง")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def do_disconnect(self):
         """Disconnect from serial port."""

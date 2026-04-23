@@ -15,6 +15,9 @@ class AppSettings:
     xmin: float = -1000.0; xmax: float = 1000.0
     ymin: float = -1000.0; ymax: float = 1000.0
     zmin: float = -1000.0; zmax: float = 1000.0
+    connection_type: str = "serial"
+    ip_address: str = "192.168.1.24"
+    tcp_port: int = 8080
     last_port: str = ""
     safe_z: float = 5.0
     theme: str = "dark"
