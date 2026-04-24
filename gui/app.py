@@ -50,6 +50,7 @@ class MainWindow(QWidget):
         self._hard_limit_pn = ""  # Stores Pn axes during hard limit (e.g. "X", "XZ")
         self._hard_limit_dialog_shown = False  # Prevents duplicate dialogs
         self._locked_jog_directions = set()  # Set of (axis, direction) e.g., ("Y", "-")
+        self._recovery_in_progress = False  # Guards against duplicate recovery triggers
 
         # --- Top bar ---
         top = QHBoxLayout()
@@ -478,12 +479,22 @@ class MainWindow(QWidget):
         grbl_commands.do_estop(self)
 
     def _do_unlock(self):
-        """Unlock the machine: clear UI lock, send $X, re-enable controls."""
+        """Unlock the machine: re-enable hard limits, send $X, re-enable controls."""
         self.controller._ui_locked = False
-        # Do not clear _alarm_active here; let on_status clear it when Pn clears.
+        self.controller._alarm_active = False
+        self._hard_limit_dialog_shown = False  # Allow future hard limit detection
+        self._recovery_in_progress = False
+        self._last_alarm_was_hard_limit = False
+        self._hard_limit_pn = ""
+        # Do NOT clear _locked_jog_directions — keep sensor-direction locks active
+        # until user moves away from sensor
+
+        # Re-enable hard limits first (was disabled during recovery with $21=0)
+        self.worker.send_line("$21=1")
+        self.on_log("> $21=1 (Hard limits ON)")
         self.worker.send_line("$X")
         self.on_log("Unlock ($X) — ปลดล็อคเรียบร้อย")
-        # Re-enable jog and home buttons
+        # Re-enable jog and home buttons (respecting directional locks)
         self.update_jog_buttons_state()
         from core.utils import _set_enabled
         cp = self.control_page
@@ -505,14 +516,19 @@ class MainWindow(QWidget):
 
     def jog(self, axis: str, delta: float):
         direction = "+" if delta > 0 else "-"
-        opposite = "-" if delta > 0 else "+"
-        # If moving in the opposite direction of a lock, clear the lock
-        if (axis, opposite) in self._locked_jog_directions:
-            self._locked_jog_directions.remove((axis, opposite))
-            self.update_jog_buttons_state()
-            self.on_log(f"🔓 ปลดล็อคปุ่มทิศทาง {axis}{opposite} อัตโนมัติ (ขยับออกแล้ว)")
-            
+        # Block jog if that specific direction is locked (sensor hit direction)
+        if (axis, direction) in self._locked_jog_directions:
+            self.on_log(f"🚫 ปุ่ม {axis}{direction} ถูกล็อค — ให้ขยับออกจากเซ็นเซอร์ก่อน")
+            return
+
         movement.jog(self, axis, delta)
+
+        # After a successful jog in opposite direction, schedule a deferred unlock check
+        # We only unlock the crashed direction AFTER movement actually happens
+        opposite = "-" if delta > 0 else "+"
+        if (axis, opposite) in self._locked_jog_directions:
+            # Schedule a check after 500ms to see if sensor is still triggered
+            QTimer.singleShot(500, lambda a=axis, o=opposite: self._check_sensor_unlock(a, o))
 
     def move_to_target(self):
         movement.move_to_target(self)
@@ -529,9 +545,21 @@ class MainWindow(QWidget):
         event.accept()
 
     # -------- Hard Limit Auto-Recovery --------
+    _BACKOFF_MM = 5  # Distance to back off from sensor (mm)
+
     def do_hard_limit_recovery(self, pn: str):
-        """Execute auto-recovery sequence: $X → $21=0 → jog back 2mm → $21=1 → $X."""
+        """Execute auto-recovery sequence: $X → $21=0 → jog back → $21=1 → $X.
+
+        Guard: only one recovery can run at a time. Duplicate calls are silently
+        dropped so that the ALARM/status spam loop does not stack recoveries.
+        """
         from core.i18n import tr
+
+        # ── Guard: prevent duplicate recovery ──
+        if self._recovery_in_progress:
+            return
+        self._recovery_in_progress = True
+        self._hard_limit_dialog_shown = True  # Prevent on_status / on_alarm from re-entering
 
         self.on_log(tr("hard_limit_log_start"))
 
@@ -545,75 +573,78 @@ class MainWindow(QWidget):
             for axis in "XYZ":
                 if axis in pn.upper():
                     backoff_dir = self._compute_backoff_direction(axis)
-                    jog_parts.append(f"{axis}{backoff_dir}2.000")
-                    
+                    jog_parts.append(f"{axis}{backoff_dir}{self._BACKOFF_MM:.3f}")
+
                     # Lock the button that crashes into the sensor
                     crash_dir = "-" if backoff_dir == "+" else "+"
                     self._locked_jog_directions.add((axis, crash_dir))
                     self.on_log(f"🔒 ล็อคปุ่มทิศทาง {axis}{crash_dir} ชั่วคราวป้องกันชนซ้ำ")
-                    
+
             self.update_jog_buttons_state()
 
             # Step 2: After 300ms → Disable hard limits temporarily
             QTimer.singleShot(300, lambda: self._recovery_step2(jog_parts))
 
         except Exception as e:
+            self._recovery_in_progress = False
             self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
 
     def _recovery_step2(self, jog_parts: list):
-        """Recovery Step 2: Disable hard limits and Jog."""
+        """Recovery Step 2: Disable hard limits and Jog back."""
+        from core.i18n import tr
         try:
             self.worker.send_line("$21=0")
             self.on_log("> $21=0 (Hard limits OFF)")
 
-            # Step 3: Jog away
+            # Jog away from sensor
             if jog_parts:
                 jog_cmd = f"$J=G91 {' '.join(jog_parts)} F500"
                 QTimer.singleShot(200, lambda: self._send_jog(jog_cmd))
-            
-            # Step 4: After 1000ms (to let jog finish) → Re-enable hard limits
-            QTimer.singleShot(1200, lambda: self._recovery_step4())
+
+            # After 1500ms (wait for jog to finish) → finalize recovery
+            # NOTE: We do NOT re-enable $21=1 here. It stays OFF.
+            # $21=1 will be sent when user clicks Unlock in _do_unlock().
+            # This prevents GRBL from firing ALARM:1 again if sensor is
+            # still triggered, which was the root cause of the spam loop.
+            QTimer.singleShot(1500, lambda: self._recovery_finalize())
         except Exception as e:
+            self._recovery_in_progress = False
             self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
 
     def _send_jog(self, jog_cmd):
         self.worker.send_line(jog_cmd)
-        self.on_log(f"> {jog_cmd} (Back off 2mm)")
+        self.on_log(f"> {jog_cmd} (Back off {self._BACKOFF_MM}mm)")
 
-    def _recovery_step4(self):
-        """Recovery Step 4: Re-enable hard limits and final unlock."""
-        try:
-            self.worker.send_line("$21=1")
-            self.on_log("> $21=1 (Hard limits ON)")
+    def _recovery_finalize(self):
+        """Recovery final step: unlock GRBL, lock UI, show dialog ONCE.
 
-            # Step 5: After 300ms → Final $X and show dialog
-            QTimer.singleShot(300, lambda: self._recovery_step5())
-        except Exception as e:
-            self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
-
-    def _recovery_step5(self):
-        """Recovery Step 5: Final unlock, clear state, show dialog."""
+        Hard limits ($21) stay OFF — will be re-enabled when user clicks Unlock.
+        """
         from core.i18n import tr
         try:
             self.worker.send_line("$X")
-            self.on_log("> $X (Final unlock)")
+            self.on_log("> $X (Unlock GRBL after backoff)")
 
             # Clear alarm state internally
             self.controller._alarm_active = False
-            self.controller._ui_locked = True  # We keep UI locked until user acknowledges the dialog!
+            self.controller._ui_locked = True  # Keep UI locked until user acknowledges the dialog
             self._last_alarm_was_hard_limit = False
             self._hard_limit_pn = ""
-            self._hard_limit_dialog_shown = False
+            # Keep _hard_limit_dialog_shown = True so no new recovery triggers
+
+            # ── Mark recovery as DONE ──
+            self._recovery_in_progress = False
 
             self.update_jog_buttons_state()
             self.on_log(tr("hard_limit_log_done"))
-            
-            # Show the dialog NOW
+
+            # Show the dialog NOW (exactly once)
             from ops.signal_handlers import _show_hard_limit_dialog
             pn = self.worker._last_pn or "?"
             _show_hard_limit_dialog(self, pn)
 
         except Exception as e:
+            self._recovery_in_progress = False
             self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
 
     def update_jog_buttons_state(self):
@@ -624,6 +655,23 @@ class MainWindow(QWidget):
                 btn.setEnabled(False)
             else:
                 btn.setEnabled(base_enabled)
+
+    def _check_sensor_unlock(self, axis: str, locked_direction: str):
+        """Check if the sensor for a locked direction has cleared.
+
+        Called ~500ms after a jog in the opposite direction. If the Pn
+        field no longer contains the axis letter, unlock the button.
+        """
+        pn = ""
+        if self.worker._last_status:
+            pn = self.worker._last_status.get("pn", "")
+        if axis not in pn.upper():
+            # Sensor is no longer active → unlock
+            if (axis, locked_direction) in self._locked_jog_directions:
+                self._locked_jog_directions.discard((axis, locked_direction))
+                self.update_jog_buttons_state()
+                self.on_log(f"🔓 ปลดล็อคปุ่มทิศทาง {axis}{locked_direction} อัตโนมัติ (เซ็นเซอร์ไม่ตรวจจับแล้ว)")
+        # else: sensor still triggered, keep locked
 
     def _compute_backoff_direction(self, axis: str) -> str:
         """Determine the direction to back off from a triggered limit switch.

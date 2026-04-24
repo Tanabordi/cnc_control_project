@@ -95,6 +95,12 @@ def on_status(main_window, payload: dict):
 
     main_window.run_page.update_tool_position(wx, wy)
 
+    # ── If recovery is in progress, only update position — skip all alarm logic ──
+    if getattr(main_window, '_recovery_in_progress', False):
+        for page in (main_window.control_page, main_window.run_page):
+            page.state_lbl.setText(f"{state} [RECOVERING]")
+        return
+
     # --- Software Limit Protection ---
     # If a limit switch is hit but GRBL is NOT in Alarm state (e.g. $21=0),
     # we force it into Alarm mode and immediately stop motion.
@@ -127,16 +133,14 @@ def on_status(main_window, payload: dict):
     main_window.run_page.unlock_btn.setEnabled(is_alarm)
 
     if is_alarm and not main_window.controller._alarm_active:
-        # Alarm first appeared via status report — treat ALL alarm states as potential hard limit
-        # Real detection happens via the ALARM:N line from worker.alarm signal.
-        # Here we just lock controls and set alarm_active.
+        # Alarm first appeared via status report
         main_window.controller.handle_alarm(state)
         _set_enabled(main_window.control_page.jog_buttons, False)
         _set_enabled(_home_buttons(main_window.control_page), False)
         for page in (main_window.control_page, main_window.run_page):
             page.state_lbl.setText(state)
-            
-        # If we already have Pn data, it's definitively a hard limit.
+
+        # If we have Pn data AND no recovery was triggered yet, trigger it
         if pn and not main_window._hard_limit_dialog_shown:
             main_window._last_alarm_was_hard_limit = True
             main_window._hard_limit_pn = pn
@@ -148,11 +152,9 @@ def on_status(main_window, payload: dict):
 
     elif is_alarm and main_window.controller._alarm_active:
         # Alarm still active — check if we now have Pn data we didn't have before
-        # This handles the case where ALARM:1 fired before Pn: was received
         if pn and not main_window._hard_limit_dialog_shown:
             main_window._last_alarm_was_hard_limit = True
             main_window._hard_limit_pn = pn
-            # Now we have axis info — trigger recovery
             main_window._hard_limit_dialog_shown = True
             axes_str = pn
             log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
@@ -160,13 +162,19 @@ def on_status(main_window, payload: dict):
             QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
 
     elif main_window.controller._alarm_active and not is_alarm:
-        # Alarm cleared — restore controls
-        main_window.controller._alarm_active = False
-        main_window._last_alarm_was_hard_limit = False
-        main_window._hard_limit_pn = ""
-        main_window._hard_limit_dialog_shown = False
-        main_window.update_jog_buttons_state()
-        _set_enabled(_home_buttons(main_window.control_page), True)
+        # Alarm cleared — but only restore controls if UI is NOT locked
+        # (recovery sets _ui_locked=True, so we must not reset guards here)
+        if main_window.controller._ui_locked or getattr(main_window, '_recovery_in_progress', False):
+            # Alarm state cleared by GRBL, but UI is still locked from recovery.
+            # Just clear alarm_active, keep everything else guarded.
+            main_window.controller._alarm_active = False
+        else:
+            main_window.controller._alarm_active = False
+            main_window._last_alarm_was_hard_limit = False
+            main_window._hard_limit_pn = ""
+            main_window._hard_limit_dialog_shown = False
+            main_window.update_jog_buttons_state()
+            _set_enabled(_home_buttons(main_window.control_page), True)
 
 
 def on_log(main_window, msg: str):
@@ -198,10 +206,14 @@ def _on_stream_progress(main_window, done: int, total: int):
 
 def on_alarm(main_window, msg: str, pn_axes: str = ""):
     """Handle alarm signal from worker — with hard-limit direction awareness.
-    
+
     This is called when worker emits alarm signal (ALARM:N line received).
     msg will be something like "ALARM:1", "ALARM:2", etc.
     """
+    # ── If recovery is already in progress, ignore duplicate ALARM signals ──
+    if getattr(main_window, '_recovery_in_progress', False):
+        return
+
     main_window.controller.handle_alarm(msg)
 
     # Detect hard limit: ALARM:1 is always hard limit in GRBL
@@ -245,6 +257,8 @@ def _fallback_hard_limit_recovery(main_window):
         return  # alarm was already cleared
     if getattr(main_window, '_hard_limit_dialog_shown', False):
         return  # recovery was already triggered with proper axis data
+    if getattr(main_window, '_recovery_in_progress', False):
+        return  # recovery already running
 
     main_window._hard_limit_dialog_shown = True
     # Try one more time to get Pn from worker
@@ -282,7 +296,8 @@ def on_grbl_reset(main_window):
     ui_locked = main_window.controller._ui_locked
     
     # Protect hard limit state if we are currently recovering
-    is_recovering = getattr(main_window, '_hard_limit_dialog_shown', False)
+    is_recovering = (getattr(main_window, '_hard_limit_dialog_shown', False) or
+                     getattr(main_window, '_recovery_in_progress', False))
     
     if not is_recovering:
         main_window.controller._alarm_active = False

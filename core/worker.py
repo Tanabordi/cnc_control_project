@@ -449,7 +449,7 @@ class GrblWorker(QThread):
                             self.log.emit(line)
                             if line.startswith("ALARM"):
                                 self.alarm.emit(line, self._last_pn)
-                                self._alarm_pause_until = time.time() + 2.0
+                                self._alarm_pause_until = time.time() + 4.0
                             if self._streaming:
                                 self.line_error_at.emit(self._current_stream_idx, line)
                                 self._stop_stream_internal("error")
