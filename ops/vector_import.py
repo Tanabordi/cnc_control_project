@@ -652,6 +652,7 @@ class VectorImportDialog(QDialog):
                     cleaned.append(pt)
 
             for vert_idx, (vx, vy) in enumerate(cleaned):
+                power_val = 0 if vert_idx == 0 else 255
                 points.append(Point(
                     name=f"V{wp_idx}",
                     x=round(vx, 3),
@@ -659,6 +660,7 @@ class VectorImportDialog(QDialog):
                     z=round(z_surface, 3),
                     feed_to_next=feed,
                     z_safe=z_safe,
+                    power=power_val,
                 ))
                 wp_idx += 1
 

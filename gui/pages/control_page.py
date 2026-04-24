@@ -304,6 +304,16 @@ class ControlPage(QWidget):
         self.jog_buttons = [self.btn_x_plus, self.btn_x_minus, self.btn_y_plus,
                             self.btn_y_minus, self.btn_z_plus, self.btn_z_minus]
 
+        # Mapping (axis, direction) -> button for direction-aware limit locking
+        self.jog_button_map = {
+            ("X", "+"): self.btn_x_plus,
+            ("X", "-"): self.btn_x_minus,
+            ("Y", "+"): self.btn_y_plus,
+            ("Y", "-"): self.btn_y_minus,
+            ("Z", "+"): self.btn_z_plus,
+            ("Z", "-"): self.btn_z_minus,
+        }
+
         # การตั้งค่า Jog (Step / Feed)
         jog_settings = QVBoxLayout()
         self.keyboard_cb = QCheckBox(tr("cb_keyboard_jog")); self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))

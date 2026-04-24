@@ -1,8 +1,10 @@
 """Signal handlers for worker events."""
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QPushButton
+from PySide6.QtCore import QTimer
 
 from core.utils import _set_enabled
+from core.i18n import tr
 
 
 def _home_buttons(cp):
@@ -63,7 +65,7 @@ def on_stream_state(main_window, st: str):
     main_window.controller.set_streaming(st in ("running", "paused"))
     locked = main_window.controller.is_streaming()
     cp = main_window.control_page
-    _set_enabled(cp.jog_buttons, main_window.controller.is_connected() and (not locked))
+    main_window.update_jog_buttons_state()
     _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
                   cp.export_gcode_btn, cp.export_panel_btn, cp.preview3d_btn,
@@ -93,6 +95,15 @@ def on_status(main_window, payload: dict):
 
     main_window.run_page.update_tool_position(wx, wy)
 
+    # --- Software Limit Protection ---
+    # If a limit switch is hit but GRBL is NOT in Alarm state (e.g. $21=0),
+    # we force it into Alarm mode and immediately stop motion.
+    if pn and not state.lower().startswith("alarm") and not main_window._hard_limit_dialog_shown:
+        main_window.on_log(f"⚠ Software Limit Triggered (Pn: {pn}) - หยุดการทำงานฉุกเฉิน!")
+        if main_window.controller.is_streaming() or state.lower() in ("run", "jog"):
+            main_window.worker.send_reset()
+        state = "Alarm"
+
     is_alarm = state.lower().startswith("alarm")
     ui_locked = main_window.controller._ui_locked
 
@@ -116,13 +127,46 @@ def on_status(main_window, payload: dict):
     main_window.run_page.unlock_btn.setEnabled(is_alarm)
 
     if is_alarm and not main_window.controller._alarm_active:
-        main_window.on_alarm(state)
+        # Alarm first appeared via status report — treat ALL alarm states as potential hard limit
+        # Real detection happens via the ALARM:N line from worker.alarm signal.
+        # Here we just lock controls and set alarm_active.
+        main_window.controller.handle_alarm(state)
+        _set_enabled(main_window.control_page.jog_buttons, False)
+        _set_enabled(_home_buttons(main_window.control_page), False)
+        for page in (main_window.control_page, main_window.run_page):
+            page.state_lbl.setText(state)
+            
+        # If we already have Pn data, it's definitively a hard limit.
+        if pn and not main_window._hard_limit_dialog_shown:
+            main_window._last_alarm_was_hard_limit = True
+            main_window._hard_limit_pn = pn
+            main_window._hard_limit_dialog_shown = True
+            axes_str = pn
+            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
+            main_window.on_log(log_msg)
+            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+
+    elif is_alarm and main_window.controller._alarm_active:
+        # Alarm still active — check if we now have Pn data we didn't have before
+        # This handles the case where ALARM:1 fired before Pn: was received
+        if pn and not main_window._hard_limit_dialog_shown:
+            main_window._last_alarm_was_hard_limit = True
+            main_window._hard_limit_pn = pn
+            # Now we have axis info — trigger recovery
+            main_window._hard_limit_dialog_shown = True
+            axes_str = pn
+            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
+            main_window.on_log(log_msg)
+            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+
     elif main_window.controller._alarm_active and not is_alarm:
+        # Alarm cleared — restore controls
         main_window.controller._alarm_active = False
         main_window._last_alarm_was_hard_limit = False
-        cp = main_window.control_page
-        _set_enabled(cp.jog_buttons, True)
-        _set_enabled(_home_buttons(cp), True)
+        main_window._hard_limit_pn = ""
+        main_window._hard_limit_dialog_shown = False
+        main_window.update_jog_buttons_state()
+        _set_enabled(_home_buttons(main_window.control_page), True)
 
 
 def on_log(main_window, msg: str):
@@ -152,18 +196,83 @@ def _on_stream_progress(main_window, done: int, total: int):
     main_window.run_page.update_progress(done, total)
 
 
-def on_alarm(main_window, msg: str):
-    """Handle alarm state."""
+def on_alarm(main_window, msg: str, pn_axes: str = ""):
+    """Handle alarm signal from worker — with hard-limit direction awareness.
+    
+    This is called when worker emits alarm signal (ALARM:N line received).
+    msg will be something like "ALARM:1", "ALARM:2", etc.
+    """
     main_window.controller.handle_alarm(msg)
-    main_window._last_alarm_was_hard_limit = "1" in msg
+
+    # Detect hard limit: ALARM:1 is always hard limit in GRBL
+    is_hard_limit = msg.upper().startswith("ALARM:1") or msg.upper() == "ALARM:1"
+    main_window._last_alarm_was_hard_limit = is_hard_limit
+
     for page in (main_window.control_page, main_window.run_page):
         page.state_lbl.setText(msg)
+
+    # Disable ALL jog buttons and home buttons immediately (safety first)
     _set_enabled(main_window.control_page.jog_buttons, False)
     _set_enabled(_home_buttons(main_window.control_page), False)
-    if main_window._last_alarm_was_hard_limit:
-        main_window.on_log("Hard limit! ขยับแกนออกจาก endstop ด้วยมือก่อน แล้วกด Unlock ($X)")
+
+    if is_hard_limit:
+        # Try to get Pn from signal args, or from worker's last known value
+        pn = pn_axes or main_window.worker._last_pn or ""
+        main_window._hard_limit_pn = pn
+
+        if pn:
+            # We have axis info right now — start auto-recovery immediately
+            main_window._hard_limit_dialog_shown = True
+            axes_str = pn
+            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
+            main_window.on_log(log_msg)
+            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+        else:
+            # No Pn data yet — wait for it from status reports (on_status will handle)
+            main_window._hard_limit_dialog_shown = False
+            main_window.on_log("⚠ ALARM:1 (Hard Limit) detected — waiting for axis data from Pn:...")
+            # Set a fallback timer: if Pn never arrives, start recovery with "?" after 3 seconds
+            QTimer.singleShot(3000, lambda: _fallback_hard_limit_recovery(main_window))
     else:
+        main_window._hard_limit_pn = ""
+        main_window._hard_limit_dialog_shown = False
         main_window.on_log(f"{msg} — กด Unlock ($X) เพื่อ clear")
+
+
+def _fallback_hard_limit_recovery(main_window):
+    """Fallback: trigger recovery with '?' if Pn data never arrived after ALARM:1."""
+    if not main_window._last_alarm_was_hard_limit:
+        return  # alarm was already cleared
+    if getattr(main_window, '_hard_limit_dialog_shown', False):
+        return  # recovery was already triggered with proper axis data
+
+    main_window._hard_limit_dialog_shown = True
+    # Try one more time to get Pn from worker
+    pn = main_window._hard_limit_pn or main_window.worker._last_pn or "?"
+    axes_str = pn if pn else "?"
+    log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
+    main_window.on_log(log_msg)
+    main_window.do_hard_limit_recovery(pn)
+
+def _show_hard_limit_dialog(main_window, axes_str: str):
+    """Show QMessageBox.critical informing user that auto-recovery is done and UI is locked."""
+    dlg = QMessageBox(main_window)
+    dlg.setIcon(QMessageBox.Warning)
+    dlg.setWindowTitle(tr("hard_limit_title"))
+    dlg.setText(tr("hard_limit_msg").replace("{axes}", axes_str))
+
+    # Custom buttons
+    unlock_btn = dlg.addButton(tr("hard_limit_unlock"), QMessageBox.AcceptRole)
+    unlock_btn.setStyleSheet(
+        "QPushButton { background-color: #0d6efd; color: white; font-weight: bold; "
+        "padding: 8px 16px; font-size: 13px; }"
+        "QPushButton:hover { background-color: #0b5ed7; }"
+    )
+
+    dlg.exec()
+
+    if dlg.clickedButton() == unlock_btn:
+        main_window._do_unlock()
 
 
 def on_grbl_reset(main_window):
@@ -171,13 +280,20 @@ def on_grbl_reset(main_window):
     was_hard_limit = getattr(main_window, '_last_alarm_was_hard_limit', False)
     was_alarm = main_window.controller._alarm_active
     ui_locked = main_window.controller._ui_locked
-    main_window.controller._alarm_active = False
-    main_window._last_alarm_was_hard_limit = False
+    
+    # Protect hard limit state if we are currently recovering
+    is_recovering = getattr(main_window, '_hard_limit_dialog_shown', False)
+    
+    if not is_recovering:
+        main_window.controller._alarm_active = False
+        main_window._last_alarm_was_hard_limit = False
+        main_window._hard_limit_pn = ""
+        main_window._hard_limit_dialog_shown = False
+        main_window._locked_jog_directions.clear()
 
-    if was_alarm and not ui_locked:
-        cp = main_window.control_page
-        _set_enabled(cp.jog_buttons, True)
-        _set_enabled(_home_buttons(cp), True)
+    if was_alarm and not ui_locked and not is_recovering:
+        main_window.update_jog_buttons_state()
+        _set_enabled(_home_buttons(main_window.control_page), True)
         if not main_window.controller.is_streaming():
             main_window.on_stream_state("idle")
 
@@ -187,9 +303,8 @@ def on_grbl_reset(main_window):
         # Keep unlock button active, keep jog/home locked
         main_window.control_page.unlock_btn.setEnabled(True)
         main_window.run_page.unlock_btn.setEnabled(True)
-        cp = main_window.control_page
-        _set_enabled(cp.jog_buttons, False)
-        _set_enabled(_home_buttons(cp), False)
+        main_window.update_jog_buttons_state()
+        _set_enabled(_home_buttons(main_window.control_page), False)
         main_window.on_log("⚠ เครื่องถูกล็อคโดย UI — กด Unlock ($X) เพื่อปลดล็อค")
     else:
         main_window.control_page.unlock_btn.setEnabled(False)

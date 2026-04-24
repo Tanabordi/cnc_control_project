@@ -180,33 +180,53 @@ class CNCController:
             lines.extend(self._build_panel_lines(points, offsets))
         else:
             # Single PCB
-            for point in points:
-                lines.extend(self._point_lines(point))
+            lines.extend(self._process_points(points))
 
         return lines
 
-    def _point_lines(self, point: Point, ox: float = 0.0, oy: float = 0.0,
-                    label: Optional[str] = None) -> List[str]:
-        """Generate G-code lines for a single point."""
-        feed = int(point.feed_to_next)
-        name = label or point.name
-        return [
-            f"; {name}",
-            f"G0 X{point.x + ox:.3f} Y{point.y + oy:.3f} Z{point.z_safe:.3f}",
-            f"G1 Z{point.z:.3f} F{feed}",
-            f"M3 S{point.power}",
-            f"G4 P{point.laser_time_s:.3f}",
-            "M5",
-            f"G0 Z{point.z_safe:.3f}",
-        ]
+    def _process_points(self, points: List[Point], ox: float = 0.0, oy: float = 0.0,
+                        panel_label: str = "") -> List[str]:
+        """Generate continuous vector tracing G-code lines for a list of points."""
+        lines = []
+        is_pen_down = False
+        last_z_safe = -2.0
+
+        for point in points:
+            feed = int(point.feed_to_next)
+            name = f"[{panel_label}]{point.name}" if panel_label else point.name
+            lines.append(f"; {name}")
+            
+            last_z_safe = point.z_safe
+            
+            if point.power == 0:
+                if is_pen_down:
+                    lines.append("M5")
+                    lines.append(f"G0 Z{point.z_safe:.3f}")
+                    is_pen_down = False
+                lines.append(f"G0 X{point.x + ox:.3f} Y{point.y + oy:.3f} Z{point.z_safe:.3f}")
+            else:
+                if not is_pen_down:
+                    lines.append(f"G1 Z{point.z:.3f} F{feed}")
+                    lines.append(f"M3 S{point.power}")
+                    if point.laser_time_s > 0:
+                        lines.append(f"G4 P{point.laser_time_s:.3f}")
+                    is_pen_down = True
+                
+                lines.append(f"G1 X{point.x + ox:.3f} Y{point.y + oy:.3f} F{feed}")
+
+        if is_pen_down:
+            lines.append("M5")
+            lines.append(f"G0 Z{last_z_safe:.3f}")
+
+        return lines
 
     def _build_panel_lines(self, points: List[Point], offsets: List[Tuple[int, int, float, float]]) -> List[str]:
         """Build G-code lines for panel replication."""
         lines = []
         for row, col, ox, oy in offsets:
-            lines.append(f"; --- Panel [{row+1},{col+1}] offset X{ox:.3f} Y{oy:.3f} ---")
-            for point in points:
-                lines.extend(self._point_lines(point, ox, oy, label=f"[{row+1},{col+1}]{point.name}"))
+            panel_label = f"{row+1},{col+1}"
+            lines.append(f"; --- Panel [{panel_label}] offset X{ox:.3f} Y{oy:.3f} ---")
+            lines.extend(self._process_points(points, ox, oy, panel_label=panel_label))
         return lines
 
     # -------- File Operations --------

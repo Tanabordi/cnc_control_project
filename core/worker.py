@@ -20,7 +20,7 @@ class GrblWorker(QThread):
     line_ack = Signal(int)          # index acked
     line_error_at = Signal(int, str)  # (index, error)
     grbl_param_line = Signal(str)   # raw "$N=value (desc)" lines from $$
-    alarm = Signal(str)             # "ALARM:N" line
+    alarm = Signal(str, str)        # ("ALARM:N" line, pn_axes)
     grbl_reset = Signal()           # GRBL sent startup banner (reset occurred)
     stream_progress = Signal(int, int)  # (lines_done, lines_total)
 
@@ -35,6 +35,7 @@ class GrblWorker(QThread):
         self._last_status = None
         self.poll_interval_ms = 150
         self._alarm_pause_until = 0.0  # pause ? polling after ALARM
+        self._last_pn = ""              # last seen Pn: value (e.g. "X", "XZ")
 
         self._stream_queue = deque()
         self._streaming = False
@@ -423,6 +424,8 @@ class GrblWorker(QThread):
 
                             if wpos:
                                 pn_str = extract_field(line, "Pn")
+                                if pn_str:
+                                    self._last_pn = pn_str
                                 payload = {"state": state, "wpos": wpos, "mpos": mpos, "pn": pn_str or "", "raw": line}
                                 self._last_status = payload
                                 self.status.emit(payload)
@@ -445,7 +448,7 @@ class GrblWorker(QThread):
                         elif line.startswith("error") or line.startswith("ALARM"):
                             self.log.emit(line)
                             if line.startswith("ALARM"):
-                                self.alarm.emit(line)
+                                self.alarm.emit(line, self._last_pn)
                                 self._alarm_pause_until = time.time() + 2.0
                             if self._streaming:
                                 self.line_error_at.emit(self._current_stream_idx, line)

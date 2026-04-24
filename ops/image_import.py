@@ -537,20 +537,7 @@ class ImageImportDialog(QDialog):
                 continue
 
             for vert_idx, (vx, vy) in enumerate(cleaned):
-                if vert_idx == 0:
-                    # Rapid move to start of contour (power 0, z_safe)
-                    points.append(Point(
-                        name=f"C{wp_idx}",
-                        x=round(vx, 3),
-                        y=round(vy, 3),
-                        z=round(z_safe, 3),
-                        feed_to_next=feed,
-                        z_safe=z_safe,
-                        power=0
-                    ))
-                    wp_idx += 1
-                
-                # Plunge / cut move (power 255, z_surface)
+                power_val = 0 if vert_idx == 0 else 255
                 points.append(Point(
                     name=f"C{wp_idx}",
                     x=round(vx, 3),
@@ -558,7 +545,7 @@ class ImageImportDialog(QDialog):
                     z=round(z_surface, 3),
                     feed_to_next=feed,
                     z_safe=z_safe,
-                    power=255
+                    power=power_val
                 ))
                 wp_idx += 1
 
