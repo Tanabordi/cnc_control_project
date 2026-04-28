@@ -39,13 +39,15 @@ python Main.py
 
 ### การเชื่อมต่อ / Connection
 - เชื่อมต่อผ่าน Serial COM port หรือ TCP/IP socket
-- Connect via Serial COM port or TCP/IP socket
+- **Network Scanner:** สแกนหาบอร์ด CNC ในวง WiFi เดียวกันอัตโนมัติ (ไม่ต้องจำ IP)
+- **Network Scanner:** Auto-discover CNC boards on the local WiFi network (no need to memorize IP)
 - Auto unlock (`$X`) หลัง connect / หลัง reset ได้ตั้งค่าใน Settings
 - แสดง Work coordinates / Machine coordinates แบบ real-time
 
 ### Control Page / หน้าควบคุม
 | ปุ่ม / Button | หน้าที่ / Function |
 |---|---|
+| 🔍 Scan | สแกนหาบอร์ด CNC ในวงเครือข่าย / Scan for CNC boards on network |
 | Load Points (.gcode) | โหลด G-code แปลงเป็น waypoints / Load G-code as waypoints |
 | Import PCB CSV | นำเข้า component จาก KiCad CSV พร้อม calibration |
 | Import Vector (SVG/DXF) | นำเข้าไฟล์ vector เป็น CNC waypoints |
@@ -110,6 +112,7 @@ cnc_control_project/
 │
 ├── features/                       # ⚙️ Feature modules — แยกตามฟีเจอร์ / By feature
 │   ├── connection.py               #   📡 Serial/TCP connection management
+│   ├── network_scanner.py          #   🔍 Network Scanner logic & dialog
 │   ├── grbl_commands.py            #   🔧 GRBL commands ($H, $X, E-STOP, console)
 │   ├── movement.py                 #   🕹️ Jog, step mode, move to target
 │   ├── waypoint_ops.py             #   📍 Waypoint CRUD, file I/O, 3D preview
