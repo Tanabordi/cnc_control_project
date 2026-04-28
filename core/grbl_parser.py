@@ -57,7 +57,11 @@ def extract_field(line: str, key: str):
     if token not in line:
         return None
     try:
-        return line.split(token, 1)[1].split("|", 1)[0].strip()
+        val = line.split(token, 1)[1].split("|", 1)[0].strip()
+        # Strip trailing '>' in case this is the last field before the status line closing bracket
+        if val.endswith(">"):
+            val = val[:-1].strip()
+        return val if val else None
     except Exception:
         return None
 

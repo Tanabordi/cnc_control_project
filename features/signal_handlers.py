@@ -43,7 +43,8 @@ def on_connected(main_window, ok: bool):
     _set_enabled(cp.jog_buttons, ok)
     _set_enabled([cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
-                  cp.preview3d_btn, cp.move_btn, cp.export_gcode_btn, cp.export_panel_btn,
+                  cp.preview3d_btn, cp.move_btn, cp.move_x_btn, cp.move_y_btn, cp.move_z_btn,
+                  cp.export_gcode_btn, cp.export_panel_btn,
                   cp.import_vector_btn, cp.import_image_btn], ok)
 
     cp.update_btn.setEnabled(False)
@@ -66,7 +67,8 @@ def on_stream_state(main_window, st: str):
     locked = main_window.controller.is_streaming()
     cp = main_window.control_page
     main_window.update_jog_buttons_state()
-    _set_enabled([cp.move_btn, cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
+    _set_enabled([cp.move_btn, cp.move_x_btn, cp.move_y_btn, cp.move_z_btn,
+                  cp.load_points_gcode_btn, cp.load_csv_pcb_btn, cp.capture_btn,
                   cp.update_btn, cp.delete_btn, cp.clear_btn,
                   cp.export_gcode_btn, cp.export_panel_btn, cp.preview3d_btn,
                   cp.import_vector_btn, cp.import_image_btn], main_window.controller.is_connected() and (not locked))
@@ -101,14 +103,35 @@ def on_status(main_window, payload: dict):
             page.state_lbl.setText(f"{state} [RECOVERING]")
         return
 
+    # Check if we recovered, the user clicked Unlock, and now the sensor is finally clear
+    if getattr(main_window, '_recovery_completed', False) and not pn:
+        main_window._recovery_completed = False
+        # Don't auto-unlock here — sensor unlock is handled by check_sensor_unlock
+        # which uses the reliable $21=1 test method
+
     # --- Software Limit Protection ---
     # If a limit switch is hit but GRBL is NOT in Alarm state (e.g. $21=0),
-    # we force it into Alarm mode and immediately stop motion.
-    if pn and not state.lower().startswith("alarm") and not main_window._hard_limit_dialog_shown:
-        main_window.on_log(f"⚠ Software Limit Triggered (Pn: {pn}) - หยุดการทำงานฉุกเฉิน!")
-        if main_window.controller.is_streaming() or state.lower() in ("run", "jog"):
-            main_window.worker.send_reset()
-        state = "Alarm"
+    # trigger recovery for NEW axes not already locked.
+    # SKIP entirely if: recovery in progress, dialog shown, or sensor test in progress.
+    if (pn and not state.lower().startswith("alarm")
+            and not main_window._hard_limit_dialog_shown
+            and not getattr(main_window, '_recovery_in_progress', False)
+            and not getattr(main_window, '_sensor_test_in_progress', False)):
+        # Filter: only trigger for axes NOT already locked from previous recovery
+        locked_axes = {a for a, _ in main_window._locked_jog_directions}
+        new_axes = "".join(c for c in pn.upper() if c in "XYZ" and c not in locked_axes)
+        if new_axes:
+            main_window.on_log(f"⚠ Software Limit Triggered (Pn: {new_axes}) - เริ่ม Recovery อัตโนมัติ!")
+            if main_window.controller.is_streaming() or state.lower() in ("run", "jog"):
+                main_window.worker.send_reset()
+            # Trigger recovery directly for the new axes
+            main_window._hard_limit_dialog_shown = True
+            main_window._last_alarm_was_hard_limit = True
+            main_window._hard_limit_pn = new_axes
+            log_msg = tr("hard_limit_log_hit").replace("{axes}", new_axes)
+            main_window.on_log(log_msg)
+            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(new_axes))
+            return  # Skip rest of on_status to avoid interference
 
     is_alarm = state.lower().startswith("alarm")
     ui_locked = main_window.controller._ui_locked
@@ -141,25 +164,30 @@ def on_status(main_window, payload: dict):
             page.state_lbl.setText(state)
 
         # If we have Pn data AND no recovery was triggered yet, trigger it
-        if pn and not main_window._hard_limit_dialog_shown:
-            main_window._last_alarm_was_hard_limit = True
-            main_window._hard_limit_pn = pn
-            main_window._hard_limit_dialog_shown = True
-            axes_str = pn
-            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
-            main_window.on_log(log_msg)
-            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+        if pn and not main_window._hard_limit_dialog_shown and not getattr(main_window, '_recovery_completed', False):
+            # Filter out axes already locked from previous recovery
+            locked_axes = {a for a, _ in main_window._locked_jog_directions}
+            new_pn = "".join(c for c in pn.upper() if c in "XYZ" and c not in locked_axes)
+            if new_pn:
+                main_window._last_alarm_was_hard_limit = True
+                main_window._hard_limit_pn = new_pn
+                main_window._hard_limit_dialog_shown = True
+                log_msg = tr("hard_limit_log_hit").replace("{axes}", new_pn)
+                main_window.on_log(log_msg)
+                QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(new_pn))
 
     elif is_alarm and main_window.controller._alarm_active:
         # Alarm still active — check if we now have Pn data we didn't have before
-        if pn and not main_window._hard_limit_dialog_shown:
-            main_window._last_alarm_was_hard_limit = True
-            main_window._hard_limit_pn = pn
-            main_window._hard_limit_dialog_shown = True
-            axes_str = pn
-            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
-            main_window.on_log(log_msg)
-            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+        if pn and not main_window._hard_limit_dialog_shown and not getattr(main_window, '_recovery_completed', False):
+            locked_axes = {a for a, _ in main_window._locked_jog_directions}
+            new_pn = "".join(c for c in pn.upper() if c in "XYZ" and c not in locked_axes)
+            if new_pn:
+                main_window._last_alarm_was_hard_limit = True
+                main_window._hard_limit_pn = new_pn
+                main_window._hard_limit_dialog_shown = True
+                log_msg = tr("hard_limit_log_hit").replace("{axes}", new_pn)
+                main_window.on_log(log_msg)
+                QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(new_pn))
 
     elif main_window.controller._alarm_active and not is_alarm:
         # Alarm cleared — but only restore controls if UI is NOT locked
@@ -210,8 +238,14 @@ def on_alarm(main_window, msg: str, pn_axes: str = ""):
     This is called when worker emits alarm signal (ALARM:N line received).
     msg will be something like "ALARM:1", "ALARM:2", etc.
     """
-    # ── If recovery is already in progress, ignore duplicate ALARM signals ──
-    if getattr(main_window, '_recovery_in_progress', False):
+    # ── If recovery is already in progress or completed, ignore duplicate ALARM signals ──
+    if getattr(main_window, '_recovery_in_progress', False) or getattr(main_window, '_recovery_completed', False):
+        return
+
+    # ── If we're testing sensor via $21=1, catch the alarm and flag it ──
+    if getattr(main_window, '_sensor_test_in_progress', False):
+        main_window._sensor_test_alarmed = True
+        main_window.on_log("⚠ Sensor test: ALARM detected — sensor still active")
         return
 
     main_window.controller.handle_alarm(msg)
@@ -232,13 +266,20 @@ def on_alarm(main_window, msg: str, pn_axes: str = ""):
         pn = pn_axes or main_window.worker._last_pn or ""
         main_window._hard_limit_pn = pn
 
-        if pn:
-            # We have axis info right now — start auto-recovery immediately
+        # Filter out axes already locked (already went through recovery)
+        locked_axes = {a for a, _ in main_window._locked_jog_directions}
+        new_pn = "".join(c for c in pn.upper() if c in "XYZ" and c not in locked_axes)
+
+        if new_pn:
+            # New axis(es) need recovery
             main_window._hard_limit_dialog_shown = True
-            axes_str = pn
-            log_msg = tr("hard_limit_log_hit").replace("{axes}", axes_str)
+            log_msg = tr("hard_limit_log_hit").replace("{axes}", new_pn)
             main_window.on_log(log_msg)
-            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(pn))
+            QTimer.singleShot(100, lambda: main_window.do_hard_limit_recovery(new_pn))
+        elif pn and not new_pn:
+            # All triggered axes are already locked — just send $X and continue
+            main_window.on_log(f"⚠ เซ็นเซอร์ {pn} ทำงาน แต่แกนเหล่านี้ล็อคอยู่แล้ว — ส่ง $X")
+            main_window.worker._write_raw(b"$X\n$21=0\n")
         else:
             # No Pn data yet — wait for it from status reports (on_status will handle)
             main_window._hard_limit_dialog_shown = False
@@ -304,7 +345,12 @@ def on_grbl_reset(main_window):
         main_window._last_alarm_was_hard_limit = False
         main_window._hard_limit_pn = ""
         main_window._hard_limit_dialog_shown = False
+        main_window._recovery_completed = False
         main_window._locked_jog_directions.clear()
+    else:
+        # GRBL reset during recovery — re-send unlock + disable hard limits
+        main_window.on_log("⚠ GRBL Reset ระหว่าง Recovery — ส่ง $X + $21=0 ใหม่")
+        main_window.worker._write_raw(b"$X\n$21=0\n")
 
     if was_alarm and not ui_locked and not is_recovering:
         main_window.update_jog_buttons_state()

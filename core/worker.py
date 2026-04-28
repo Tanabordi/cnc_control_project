@@ -36,6 +36,7 @@ class GrblWorker(QThread):
         self.poll_interval_ms = 150
         self._alarm_pause_until = 0.0  # pause ? polling after ALARM
         self._last_pn = ""              # last seen Pn: value (e.g. "X", "XZ")
+        self._recovery_mode = False     # When True, don't pause polling on ALARM
 
         self._stream_queue = deque()
         self._streaming = False
@@ -424,9 +425,8 @@ class GrblWorker(QThread):
 
                             if wpos:
                                 pn_str = extract_field(line, "Pn")
-                                if pn_str:
-                                    self._last_pn = pn_str
-                                payload = {"state": state, "wpos": wpos, "mpos": mpos, "pn": pn_str or "", "raw": line}
+                                self._last_pn = pn_str or ""
+                                payload = {"state": state, "wpos": wpos, "mpos": mpos, "pn": self._last_pn, "raw": line}
                                 self._last_status = payload
                                 self.status.emit(payload)
 
@@ -449,7 +449,8 @@ class GrblWorker(QThread):
                             self.log.emit(line)
                             if line.startswith("ALARM"):
                                 self.alarm.emit(line, self._last_pn)
-                                self._alarm_pause_until = time.time() + 4.0
+                                if not self._recovery_mode:
+                                    self._alarm_pause_until = time.time() + 4.0
                             if self._streaming:
                                 self.line_error_at.emit(self._current_stream_idx, line)
                                 self._stop_stream_internal("error")
