@@ -324,11 +324,14 @@ class ControlPage(QWidget):
 
         # การตั้งค่า Jog (Step / Feed)
         jog_settings = QVBoxLayout()
-        self.keyboard_cb = QCheckBox(tr("cb_keyboard_jog")); self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))
+        self.keyboard_cb = QCheckBox(tr("cb_keyboard_jog"))
+        self.keyboard_cb.setToolTip("Arrow Keys = X/Y, PageUp/PageDown = Z")
+        self.auto_unlock_cb = QCheckBox(tr("cb_auto_unlock"))
         step_row = QHBoxLayout(); self.step_lbl = QLabel(tr("lbl_step")); step_row.addWidget(self.step_lbl)
-        self.step_mode = QComboBox(); self.step_mode.addItems(["0.1", "1", "10", "Custom"])
-        self.step_mm = QDoubleSpinBox(); self.step_mm.setEnabled(False); self.step_mm.setSuffix(" mm")
-        step_row.addWidget(self.step_mode); step_row.addWidget(self.step_mm)
+        self.step_mode = QComboBox(); self.step_mode.addItems(["0.1", "1", "10"])
+        self.step_mode.setFixedWidth(70)
+        step_row.addWidget(self.step_mode)
+        step_row.addWidget(QLabel("mm"))
         
         feed_row = QHBoxLayout(); self.feed_lbl = QLabel(tr("lbl_feed")); feed_row.addWidget(self.feed_lbl)
         self.feed = QSpinBox(); self.feed.setRange(1, 20000); self.feed.setValue(1000); self.feed.setSuffix(" mm/min")
@@ -339,17 +342,47 @@ class ControlPage(QWidget):
         jog_settings.addStretch(1)
         jl.addLayout(jog_settings)
         
-        # C. Move to Target (พิมพ์พิกัดแล้ววิ่งไป) - Moved inside Jog Control
-        tgt_row = QHBoxLayout()
-        tgt_row.setContentsMargins(0, 8, 0, 0)
+        # C. Move to Target (พิมพ์พิกัดแล้ววิ่งไป) — แยกปุ่ม Move ทีละแกน + Move All
+        tgt_box = QVBoxLayout()
+        tgt_box.setContentsMargins(0, 8, 0, 0)
+
+        # Row 1: X
+        x_row = QHBoxLayout()
+        x_row.addWidget(QLabel("X:"))
         self.tx = QDoubleSpinBox(); self.tx.setRange(-999, 999); self.tx.setDecimals(3)
+        x_row.addWidget(self.tx, 1)
+        self.move_x_btn = _btn("Move X"); self.move_x_btn.setFixedWidth(70)
+        x_row.addWidget(self.move_x_btn)
+        tgt_box.addLayout(x_row)
+
+        # Row 2: Y
+        y_row = QHBoxLayout()
+        y_row.addWidget(QLabel("Y:"))
         self.ty = QDoubleSpinBox(); self.ty.setRange(-999, 999); self.ty.setDecimals(3)
+        y_row.addWidget(self.ty, 1)
+        self.move_y_btn = _btn("Move Y"); self.move_y_btn.setFixedWidth(70)
+        y_row.addWidget(self.move_y_btn)
+        tgt_box.addLayout(y_row)
+
+        # Row 3: Z
+        z_row = QHBoxLayout()
+        z_row.addWidget(QLabel("Z:"))
         self.tz = QDoubleSpinBox(); self.tz.setRange(-999, 999); self.tz.setDecimals(3)
-        self.move_btn = _btn(tr("btn_move"))
-        for lbl, widget in [("X:", self.tx), ("Y:", self.ty), ("Z:", self.tz)]:
-            tgt_row.addWidget(QLabel(lbl)); tgt_row.addWidget(widget)
-        tgt_row.addWidget(self.move_btn)
-        jog_vbox.addLayout(tgt_row)
+        z_row.addWidget(self.tz, 1)
+        self.move_z_btn = _btn("Move Z"); self.move_z_btn.setFixedWidth(70)
+        z_row.addWidget(self.move_z_btn)
+        tgt_box.addLayout(z_row)
+
+        # Row 4: Move All button
+        self.move_btn = _btn(tr("btn_move") + " All")
+        self.move_btn.setStyleSheet(
+            "QPushButton { background-color: #1a5a3a; color: #4de68a; font-weight: bold; }"
+            "QPushButton:hover { background-color: #1e7a4a; }"
+            "QPushButton:disabled { background-color: #2a2a2a; color: #555; }"
+        )
+        tgt_box.addWidget(self.move_btn)
+
+        jog_vbox.addLayout(tgt_box)
         
         L.addWidget(self.jog_box)
 
@@ -539,7 +572,10 @@ class ControlPage(QWidget):
         self.step_lbl.setText(tr("lbl_step"))
         self.feed_lbl.setText(tr("lbl_feed"))
 
-        self.move_btn.setText(tr("btn_move"))
+        self.move_btn.setText(tr("btn_move") + " All")
+        self.move_x_btn.setText("Move X")
+        self.move_y_btn.setText("Move Y")
+        self.move_z_btn.setText("Move Z")
 
         self.action_box.setTitle(tr("grp_project"))
         for lbl in self.teach_labels:

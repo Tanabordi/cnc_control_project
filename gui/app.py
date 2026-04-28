@@ -55,6 +55,10 @@ class MainWindow(QWidget):
         self._hard_limit_dialog_shown = False  # Prevents duplicate dialogs
         self._locked_jog_directions = set()  # Set of (axis, direction) e.g., ("Y", "-")
         self._recovery_in_progress = False  # Guards against duplicate recovery triggers
+        self._recovery_locked_directions = set()  # Directions locked during last recovery
+        self._sensor_test_in_progress = False  # True when testing sensor via $21=1
+        self._sensor_test_axis = ""  # Axis being tested
+        self._sensor_test_alarmed = False  # True if alarm detected during sensor test
 
         # --- Top bar ---
         top = QHBoxLayout()
@@ -122,6 +126,9 @@ class MainWindow(QWidget):
         self.control_page.clear_btn.clicked.connect(self.clear_points)
         self.control_page.preview3d_btn.clicked.connect(self.preview_3d)
         self.control_page.move_btn.clicked.connect(self.move_to_target)
+        self.control_page.move_x_btn.clicked.connect(lambda: self.move_single_axis("X"))
+        self.control_page.move_y_btn.clicked.connect(lambda: self.move_single_axis("Y"))
+        self.control_page.move_z_btn.clicked.connect(lambda: self.move_single_axis("Z"))
         self.control_page.load_points_gcode_btn.clicked.connect(self.load_points_gcode)
         self.control_page.load_csv_pcb_btn.clicked.connect(self.load_pcb_csv)
         self.control_page.save_waypoints_btn.clicked.connect(self.save_waypoints_json)
@@ -432,25 +439,46 @@ class MainWindow(QWidget):
         grbl_commands.do_estop(self)
 
     def _do_unlock(self):
-        """Unlock the machine: re-enable hard limits, send $X, re-enable controls."""
+        """Unlock the machine: send $X, re-enable controls.
+
+        Locked jog directions are PRESERVED until user jogs away and
+        check_sensor_unlock verifies the sensor is truly clear via $21=1 test.
+        """
+        self._recovery_completed = False
+        has_locked_dirs = bool(self._locked_jog_directions)
+
+        # Always unlock UI and GRBL
+        self.worker._write_raw(b"$X\n")
+        self.on_log("> $X (Unlock GRBL)")
         self.controller._ui_locked = False
         self.controller._alarm_active = False
-        self._hard_limit_dialog_shown = False  # Allow future hard limit detection
-        self._recovery_in_progress = False
-        self._last_alarm_was_hard_limit = False
-        self._hard_limit_pn = ""
-        # Do NOT clear _locked_jog_directions — keep sensor-direction locks active
-        # until user moves away from sensor
 
-        # Re-enable hard limits first (was disabled during recovery with $21=0)
-        self.worker.send_line("$21=1")
-        self.on_log("> $21=1 (Hard limits ON)")
-        self.worker.send_line("$X")
-        self.on_log("Unlock ($X) — ปลดล็อคเรียบร้อย")
-        # Re-enable jog and home buttons (respecting directional locks)
-        self.update_jog_buttons_state()
-        cp = self.control_page
-        _set_enabled([cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn], True)
+        if has_locked_dirs:
+            # Keep $21=0 active — sensor check will re-enable it
+            # Keep locks — user must jog opposite direction first
+            # Allow new recoveries for OTHER axes by setting dialog_shown = False
+            self._hard_limit_dialog_shown = False
+            self.update_jog_buttons_state()
+
+            locked_str = ", ".join(f"{a}{d}" for a, d in self._locked_jog_directions)
+            self.on_log(f"🔒 ปุ่มที่ยังล็อค: {locked_str} — jog ทิศตรงข้ามเพื่อปลดล็อค")
+
+            cp = self.control_page
+            _set_enabled([cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn], True)
+        else:
+            # No locks — fully re-enable everything
+            self._hard_limit_dialog_shown = False
+            self._recovery_in_progress = False
+            self._last_alarm_was_hard_limit = False
+            self._hard_limit_pn = ""
+
+            self.worker.send_line("$21=1")
+            self.on_log("> $21=1 (Hard limits ON)")
+            self.worker.send_line("$X")
+            self.on_log("Unlock ($X) — ปลดล็อคเรียบร้อย")
+            self.update_jog_buttons_state()
+            cp = self.control_page
+            _set_enabled([cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn], True)
 
     def send_console_command(self):
         grbl_commands.send_console_command(self)
@@ -477,13 +505,19 @@ class MainWindow(QWidget):
 
         # After a successful jog in opposite direction, schedule a deferred unlock check
         # We only unlock the crashed direction AFTER movement actually happens
+        # Force a status poll first, then wait for GRBL to respond with updated Pn
         opposite = "-" if delta > 0 else "+"
         if (axis, opposite) in self._locked_jog_directions:
-            # Schedule a check after 500ms to see if sensor is still triggered
-            QTimer.singleShot(500, lambda a=axis, o=opposite: self._check_sensor_unlock(a, o))
+            # Force status poll to get fresh Pn data
+            self.worker._write_raw(b"?")
+            # Schedule a check after 1000ms to ensure status response arrived
+            QTimer.singleShot(1000, lambda a=axis, o=opposite: self._check_sensor_unlock(a, o))
 
     def move_to_target(self):
         movement.move_to_target(self)
+
+    def move_single_axis(self, axis: str):
+        movement.move_single_axis(self, axis)
 
     # -------- UI lifecycle --------
     def closeEvent(self, event):
