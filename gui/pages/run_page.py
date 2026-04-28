@@ -9,8 +9,9 @@ from PySide6.QtWidgets import (
     QSpinBox, QDoubleSpinBox
 )
 
-from ops.gcode import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
-from core.utils import _btn, _set_enabled, _read_text, _ts
+from features.gcode_parser import FigureCanvas, Figure, parse_gcode_to_segments, estimate_run_time
+from gui.ui_helpers import _btn, _set_enabled
+from core.grbl_parser import _read_text, _ts
 from core.i18n import tr
 
 

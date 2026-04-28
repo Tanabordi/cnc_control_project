@@ -12,19 +12,23 @@ from PySide6.QtWidgets import (
 
 from core.models import Point
 from core.settings import load_settings, save_settings
-from core.utils import clamp, _set_enabled, apply_theme
+from core.grbl_parser import clamp
+from gui.ui_helpers import _set_enabled
+from gui.theme import apply_theme
 from core.worker import GrblWorker
 from core.i18n import tr, set_language, get_language
 from gui.preview import Preview3DWindow
 from gui.pages import ControlPage, RunPage, SettingsPage
 from core.controller import CNCController
 
-# Import operation modules
-from ops import signal_handlers
-from ops import waypoint_ops
-from ops import gcode_export
-from ops import grbl_commands
-from ops import movement
+# Import feature modules
+from features import signal_handlers
+from features import waypoint_ops
+from features import gcode_export
+from features import grbl_commands
+from features import movement
+from features import connection
+from features.hard_limit import recovery as hard_limit_recovery
 
 
 class MainWindow(QWidget):
@@ -270,75 +274,20 @@ class MainWindow(QWidget):
             return
         return super().keyPressEvent(event)
 
-    # -------- Connection --------
+    # -------- Connection (delegate to features.connection) --------
     def refresh_ports(self):
-        """Refresh list of available serial ports."""
-        import serial.tools.list_ports
-        self.control_page.port_box.clear()
-        ports = [p.device for p in serial.tools.list_ports.comports()]
-        ports.append("SIMULATOR")
-        self.control_page.port_box.addItems(ports)
-        self.on_log(f"Found ports: {', '.join(ports) if ports else '(none)'}")
+        connection.refresh_ports(self)
 
     def do_connect(self):
-        """Connect to serial port or TCP socket."""
-        cp = self.control_page
-        if cp.radio_serial.isChecked():
-            # Serial Connection
-            port = cp.port_box.currentText().strip()
-            if not port:
-                QMessageBox.warning(self, "No Port", "Please select a COM port.")
-                return
-            self.settings.connection_type = "serial"
-            self.settings.last_port = port
-            save_settings(self.settings)
-            ok = self.worker.connect_serial(port, int(self.settings.baud))
-        else:
-            # TCP Connection
-            ip = cp.ip_input.text().strip()
-            if not ip:
-                QMessageBox.warning(self, "Invalid Input", "Please enter a valid IP address.")
-                return
-            port = cp.port_tcp_input.value()
-            self.settings.connection_type = "tcp"
-            self.settings.ip_address = ip
-            self.settings.tcp_port = port
-            save_settings(self.settings)
-            ok = self.worker.connect_tcp(ip, port)
-
-        if ok and not self.worker.isRunning():
-            self.worker.start()
+        connection.do_connect(self)
 
     def test_tcp_connection(self):
-        """Test TCP connection without starting the main worker loop."""
-        import socket
-        ip = self.control_page.ip_input.text().strip()
-        port = self.control_page.port_tcp_input.value()
-        if not ip:
-            QMessageBox.warning(self, "Invalid Input", "Please enter a valid IP address.")
-            return
-
-        self.on_log(f"Testing TCP connection to {ip}:{port}...")
-        QApplication.processEvents()  # Force UI to update log before blocking
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(3.0)
-                s.connect((ip, port))
-            self.on_log("Test Connection OK: บอร์ดตอบสนองสำเร็จ!")
-            QMessageBox.information(self, "Test TCP", f"Connection to {ip}:{port} successful!")
-        except Exception as e:
-            self.on_log(f"Test Connection Failed: {e}")
-            self.on_log("โปรดตรวจสอบว่าเลข Port ถูกต้องตามการตั้งค่าของบอร์ด หรือตรวจสอบการเชื่อมต่อ WiFi/LAN")
-            QMessageBox.critical(self, "Test TCP", f"Connection failed:\n{e}\n\nโปรดตรวจสอบว่าเลข Port ถูกต้อง")
-        finally:
-            QApplication.restoreOverrideCursor()
+        connection.test_tcp_connection(self)
 
     def do_disconnect(self):
-        """Disconnect from serial port."""
-        self.worker.disconnect_serial()
+        connection.do_disconnect(self)
 
-    # -------- Signal handlers (delegate to signal_handlers module) --------
+    # -------- Signal handlers (delegate to features.signal_handlers) --------
     def on_connected(self, ok: bool):
         signal_handlers.on_connected(self, ok)
 
@@ -375,7 +324,7 @@ class MainWindow(QWidget):
     def on_grbl_reset(self):
         signal_handlers.on_grbl_reset(self)
 
-    # -------- Waypoint operations (delegate to waypoint_ops module) --------
+    # -------- Waypoint operations (delegate to features.waypoint_ops) --------
     def on_waypoint_clicked(self, row: int, col: int):
         waypoint_ops.on_waypoint_clicked(self, row, col)
 
@@ -411,7 +360,7 @@ class MainWindow(QWidget):
 
     def import_vector_file(self):
         """Import SVG or DXF file for processing."""
-        from ops.vector_import import VectorImportDialog
+        from features.importers.vector_import import VectorImportDialog
 
         dlg = VectorImportDialog(worker=self.worker, parent=self)
         if dlg.exec() != QDialog.Accepted:
@@ -428,7 +377,7 @@ class MainWindow(QWidget):
 
     def import_image_file(self):
         """Import PNG or JPG file for edge tracing."""
-        from ops.image_import import ImageImportDialog
+        from features.importers.image_import import ImageImportDialog
 
         dlg = ImageImportDialog(worker=self.worker, parent=self)
         if dlg.exec() != QDialog.Accepted:
@@ -443,14 +392,14 @@ class MainWindow(QWidget):
         self._refresh_table_from_points()
         self.on_log(f"Imported {len(new_points)} waypoints from image edge trace.")
 
-    # -------- G-code export (delegate to gcode_export module) --------
+    # -------- G-code export (delegate to features.gcode_export) --------
     def export_gcode(self):
         gcode_export.export_gcode(self)
 
     def export_panel_gcode(self):
         gcode_export.export_panel_gcode(self)
 
-    # -------- GRBL commands (delegate to grbl_commands module) --------
+    # -------- GRBL commands (delegate to features.grbl_commands) --------
     def set_work_zero(self):
         grbl_commands.set_work_zero(self)
 
@@ -496,7 +445,6 @@ class MainWindow(QWidget):
         self.on_log("Unlock ($X) — ปลดล็อคเรียบร้อย")
         # Re-enable jog and home buttons (respecting directional locks)
         self.update_jog_buttons_state()
-        from core.utils import _set_enabled
         cp = self.control_page
         _set_enabled([cp.home_all_btn, cp.home_x_btn, cp.home_y_btn, cp.home_z_btn], True)
 
@@ -506,7 +454,7 @@ class MainWindow(QWidget):
     def send_run_console_command(self):
         grbl_commands.send_run_console_command(self)
 
-    # -------- Movement (delegate to movement module) --------
+    # -------- Movement (delegate to features.movement) --------
     def get_step(self):
         """Get current step size (called by control_page for jog buttons)."""
         return movement.get_step(self)
@@ -544,166 +492,15 @@ class MainWindow(QWidget):
             pass
         event.accept()
 
-    # -------- Hard Limit Auto-Recovery --------
-    _BACKOFF_MM = 5  # Distance to back off from sensor (mm)
-
+    # -------- Hard Limit Auto-Recovery (delegate to features.hard_limit) --------
     def do_hard_limit_recovery(self, pn: str):
-        """Execute auto-recovery sequence: $X → $21=0 → jog back → $21=1 → $X.
-
-        Guard: only one recovery can run at a time. Duplicate calls are silently
-        dropped so that the ALARM/status spam loop does not stack recoveries.
-        """
-        from core.i18n import tr
-
-        # ── Guard: prevent duplicate recovery ──
-        if self._recovery_in_progress:
-            return
-        self._recovery_in_progress = True
-        self._hard_limit_dialog_shown = True  # Prevent on_status / on_alarm from re-entering
-
-        self.on_log(tr("hard_limit_log_start"))
-
-        try:
-            # Step 1: Send $X to unlock GRBL FIRST so it accepts commands
-            self.worker.send_line("$X")
-            self.on_log("> $X (Unlock GRBL for recovery)")
-
-            # Determine backoff directions and lock the crash direction
-            jog_parts = []
-            for axis in "XYZ":
-                if axis in pn.upper():
-                    backoff_dir = self._compute_backoff_direction(axis)
-                    jog_parts.append(f"{axis}{backoff_dir}{self._BACKOFF_MM:.3f}")
-
-                    # Lock the button that crashes into the sensor
-                    crash_dir = "-" if backoff_dir == "+" else "+"
-                    self._locked_jog_directions.add((axis, crash_dir))
-                    self.on_log(f"🔒 ล็อคปุ่มทิศทาง {axis}{crash_dir} ชั่วคราวป้องกันชนซ้ำ")
-
-            self.update_jog_buttons_state()
-
-            # Step 2: After 300ms → Disable hard limits temporarily
-            QTimer.singleShot(300, lambda: self._recovery_step2(jog_parts))
-
-        except Exception as e:
-            self._recovery_in_progress = False
-            self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
-
-    def _recovery_step2(self, jog_parts: list):
-        """Recovery Step 2: Disable hard limits and Jog back."""
-        from core.i18n import tr
-        try:
-            self.worker.send_line("$21=0")
-            self.on_log("> $21=0 (Hard limits OFF)")
-
-            # Jog away from sensor
-            if jog_parts:
-                jog_cmd = f"$J=G91 {' '.join(jog_parts)} F500"
-                QTimer.singleShot(200, lambda: self._send_jog(jog_cmd))
-
-            # After 1500ms (wait for jog to finish) → finalize recovery
-            # NOTE: We do NOT re-enable $21=1 here. It stays OFF.
-            # $21=1 will be sent when user clicks Unlock in _do_unlock().
-            # This prevents GRBL from firing ALARM:1 again if sensor is
-            # still triggered, which was the root cause of the spam loop.
-            QTimer.singleShot(1500, lambda: self._recovery_finalize())
-        except Exception as e:
-            self._recovery_in_progress = False
-            self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
-
-    def _send_jog(self, jog_cmd):
-        self.worker.send_line(jog_cmd)
-        self.on_log(f"> {jog_cmd} (Back off {self._BACKOFF_MM}mm)")
-
-    def _recovery_finalize(self):
-        """Recovery final step: unlock GRBL, lock UI, show dialog ONCE.
-
-        Hard limits ($21) stay OFF — will be re-enabled when user clicks Unlock.
-        """
-        from core.i18n import tr
-        try:
-            self.worker.send_line("$X")
-            self.on_log("> $X (Unlock GRBL after backoff)")
-
-            # Clear alarm state internally
-            self.controller._alarm_active = False
-            self.controller._ui_locked = True  # Keep UI locked until user acknowledges the dialog
-            self._last_alarm_was_hard_limit = False
-            self._hard_limit_pn = ""
-            # Keep _hard_limit_dialog_shown = True so no new recovery triggers
-
-            # ── Mark recovery as DONE ──
-            self._recovery_in_progress = False
-
-            self.update_jog_buttons_state()
-            self.on_log(tr("hard_limit_log_done"))
-
-            # Show the dialog NOW (exactly once)
-            from ops.signal_handlers import _show_hard_limit_dialog
-            pn = self.worker._last_pn or "?"
-            _show_hard_limit_dialog(self, pn)
-
-        except Exception as e:
-            self._recovery_in_progress = False
-            self.on_log(tr("hard_limit_log_fail").replace("{err}", str(e)))
+        hard_limit_recovery.do_hard_limit_recovery(self, pn)
 
     def update_jog_buttons_state(self):
-        """Update jog buttons enabled state considering directional locks and overall UI lock."""
-        base_enabled = self.controller.is_connected() and not self.controller.is_streaming() and not self.controller._ui_locked
-        for (axis, direction), btn in self.control_page.jog_button_map.items():
-            if (axis, direction) in self._locked_jog_directions:
-                btn.setEnabled(False)
-            else:
-                btn.setEnabled(base_enabled)
+        hard_limit_recovery.update_jog_buttons_state(self)
 
     def _check_sensor_unlock(self, axis: str, locked_direction: str):
-        """Check if the sensor for a locked direction has cleared.
-
-        Called ~500ms after a jog in the opposite direction. If the Pn
-        field no longer contains the axis letter, unlock the button.
-        """
-        pn = ""
-        if self.worker._last_status:
-            pn = self.worker._last_status.get("pn", "")
-        if axis not in pn.upper():
-            # Sensor is no longer active → unlock
-            if (axis, locked_direction) in self._locked_jog_directions:
-                self._locked_jog_directions.discard((axis, locked_direction))
-                self.update_jog_buttons_state()
-                self.on_log(f"🔓 ปลดล็อคปุ่มทิศทาง {axis}{locked_direction} อัตโนมัติ (เซ็นเซอร์ไม่ตรวจจับแล้ว)")
-        # else: sensor still triggered, keep locked
-
-    def _compute_backoff_direction(self, axis: str) -> str:
-        """Determine the direction to back off from a triggered limit switch.
-
-        Returns '+' or '-' as a string prefix for the jog command.
-        Uses MPos compared to soft limits / machine origin to decide.
-        """
-        mpos = None
-        if self.worker._last_status:
-            mpos = self.worker._last_status.get("mpos")
-
-        s = self.settings
-        axis_idx = {"X": 0, "Y": 1, "Z": 2}.get(axis.upper(), 0)
-        limits = [(s.xmin, s.xmax), (s.ymin, s.ymax), (s.zmin, s.zmax)]
-        lo, hi = limits[axis_idx]
-
-        if mpos:
-            pos = mpos[axis_idx]
-            # If soft limits are meaningful (not default ±1000)
-            has_real_limits = not (lo == -1000.0 and hi == 1000.0)
-            if has_real_limits:
-                mid = (lo + hi) / 2.0
-                # If closer to max → back off negative; closer to min → back off positive
-                return "-" if pos > mid else "+"
-            else:
-                # Default heuristic: most GRBL machines have negative workspace
-                # If MPos ≤ 0 → at home/negative end → back off positive
-                # If MPos > 0 → at positive end → back off negative
-                return "+" if pos <= 0 else "-"
-
-        # No position data — default to positive (safest for negative-workspace machines)
-        return "+"
+        hard_limit_recovery.check_sensor_unlock(self, axis, locked_direction)
 
 
 def _apply_thai_safe_font(widget):

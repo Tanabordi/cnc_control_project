@@ -570,7 +570,7 @@ class VectorImportDialog(QDialog):
         design_p1 = (xmin, ymin)
         design_p2 = (xmax, ymax)
 
-        from ops.calibration_dialog import TwoPointCalibDialog
+        from features.importers.calibration_dialog import TwoPointCalibDialog
         dlg = TwoPointCalibDialog(design_p1, design_p2, self._worker, self)
         if dlg.exec() != QDialog.Accepted:
             return

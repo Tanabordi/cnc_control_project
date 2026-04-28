@@ -1,7 +1,7 @@
 import math
 
 from core.models import Segment
-from core.utils import _strip_gcode_line, _parse_words
+from core.grbl_parser import _strip_gcode_line, _parse_words
 
 # Optional: matplotlib
 try:

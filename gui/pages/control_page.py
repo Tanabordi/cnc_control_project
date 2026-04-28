@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QStackedWidget
 )
 from PySide6.QtCore import Qt
-from core.utils import _btn
+from gui.ui_helpers import _btn
 from core.i18n import tr
 
 # จำลองตารางเพื่อให้ไม่ติด Error

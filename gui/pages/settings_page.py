@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (
 )
 
 from core.settings import AppSettings, save_settings, load_settings, SETTINGS_PATH
-from core.utils import _btn, _ts, apply_theme
+from gui.ui_helpers import _btn
+from core.grbl_parser import _ts
+from gui.theme import apply_theme
 from core.i18n import tr
 
 

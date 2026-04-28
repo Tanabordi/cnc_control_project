@@ -39,7 +39,7 @@ def export_panel_gcode(main_window):
         QMessageBox.warning(main_window, "No Points", "Capture points first.")
         return
 
-    from ops.pcb_import import PanelExportDialog
+    from features.importers.pcb_import import PanelExportDialog
     dlg = PanelExportDialog(main_window.controller.points, main_window.worker, main_window)
     if dlg.exec() != PanelExportDialog.Accepted:
         return

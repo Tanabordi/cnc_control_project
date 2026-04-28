@@ -8,7 +8,7 @@ import serial
 
 from PySide6.QtCore import QThread, Signal, QMutex
 
-from core.utils import parse_xyz, extract_field, extract_state
+from core.grbl_parser import parse_xyz, extract_field, extract_state
 
 
 class GrblWorker(QThread):

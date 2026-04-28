@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import QMessageBox, QPushButton
 from PySide6.QtCore import QTimer
 
-from core.utils import _set_enabled
+from gui.ui_helpers import _set_enabled
 from core.i18n import tr
 
 

@@ -1,8 +1,8 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel
 
-from ops.gcode import FigureCanvas, NavigationToolbar, Figure
+from features.gcode_parser import FigureCanvas, NavigationToolbar, Figure
 from core.models import Point
-from core.utils import clamp
+from core.grbl_parser import clamp
 
 
 class Preview3DWindow(QDialog):

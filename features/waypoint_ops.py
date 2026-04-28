@@ -5,7 +5,7 @@ import json
 
 from PySide6.QtWidgets import QMessageBox, QFileDialog, QTableWidgetItem
 
-from core.utils import clamp
+from core.grbl_parser import clamp
 
 
 def on_waypoint_clicked(main_window, row: int, col: int):
@@ -150,7 +150,7 @@ def load_points_gcode(main_window):
 
 def load_pcb_csv(main_window):
     """Import PCB positions from CSV."""
-    from ops.pcb_import import parse_pcb_csv, PcbCalibDialog
+    from features.importers.pcb_import import parse_pcb_csv, PcbCalibDialog
     path, _ = QFileDialog.getOpenFileName(
         main_window, "Import PCB CSV", "", "CSV Files (*.csv);;All Files (*)"
     )

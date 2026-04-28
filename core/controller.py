@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QMessageBox, QFileDialog
 
 from core.models import Point
 from core.settings import AppSettings
-from core.utils import _strip_gcode_line, _parse_words, _read_text
+from core.grbl_parser import _strip_gcode_line, _parse_words, _read_text
 from core.worker import GrblWorker
 
 
