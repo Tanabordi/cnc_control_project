@@ -79,3 +79,30 @@ def test_tcp_connection(main_window):
 def do_disconnect(main_window):
     """Disconnect from serial port."""
     main_window.worker.disconnect_serial()
+
+
+def scan_network(main_window):
+    """Open network scan dialog to discover CNC boards on the local network."""
+    from features.network_scanner import NetworkScanDialog
+
+    current_port = main_window.control_page.port_tcp_input.value()
+    main_window.on_log(f"🔍 Scanning network for CNC boards (ports: 8080, 23, 81, {current_port})...")
+
+    dlg = NetworkScanDialog(current_port=current_port, parent=main_window)
+    if dlg.exec() == NetworkScanDialog.Accepted:
+        ip, port = dlg.get_selected()
+        if ip:
+            main_window.control_page.ip_input.setText(ip)
+            main_window.control_page.port_tcp_input.setValue(port)
+
+            # Switch to TCP mode if not already
+            main_window.control_page.radio_tcp.setChecked(True)
+
+            # Save to settings
+            main_window.settings.connection_type = "tcp"
+            main_window.settings.ip_address = ip
+            main_window.settings.tcp_port = port
+            save_settings(main_window.settings)
+
+            main_window.on_log(f"✅ Selected: {ip}:{port} — กด Connect เพื่อเชื่อมต่อ")
+

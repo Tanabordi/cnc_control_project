@@ -152,6 +152,7 @@ class MainWindow(QWidget):
         self.control_page.connect_btn.clicked.connect(self.do_connect)
         self.control_page.disconnect_btn.clicked.connect(self.do_disconnect)
         self.control_page.test_tcp_btn.clicked.connect(self.test_tcp_connection)
+        self.control_page.scan_btn.clicked.connect(self.scan_network)
 
         # เสียบสายไฟให้ปุ่ม Jog (ขยับแกน)
         self.control_page.step_mode.currentTextChanged.connect(self.on_step_mode)
@@ -286,6 +287,9 @@ class MainWindow(QWidget):
 
     def do_disconnect(self):
         connection.do_disconnect(self)
+
+    def scan_network(self):
+        connection.scan_network(self)
 
     # -------- Signal handlers (delegate to features.signal_handlers) --------
     def on_connected(self, ok: bool):

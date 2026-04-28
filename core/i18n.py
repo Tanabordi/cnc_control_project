@@ -180,6 +180,22 @@ TRANSLATIONS = {
     "hard_limit_log_fail":   {"en": "❌ Auto-Recovery failed: {err}",
                               "th": "❌ กู้คืนอัตโนมัติล้มเหลว: {err}"},
 
+    # ── Network Scanner ──
+    "btn_scan":              {"en": "🔍 Scan",           "th": "🔍 สแกน"},
+    "scan_title":            {"en": "Network Scan — Find CNC Board",
+                              "th": "สแกนเครือข่าย — ค้นหาบอร์ด CNC"},
+    "scan_scanning":         {"en": "Scanning {subnet}...",
+                              "th": "กำลังสแกน {subnet}..."},
+    "scan_found":            {"en": "Found {count} device(s)",
+                              "th": "พบ {count} อุปกรณ์"},
+    "scan_no_device":        {"en": "No CNC board found on this network",
+                              "th": "ไม่พบบอร์ด CNC ในเครือข่ายนี้"},
+    "scan_select":           {"en": "Select",            "th": "เลือก"},
+    "scan_rescan":           {"en": "🔄 Re-scan",        "th": "🔄 สแกนใหม่"},
+    "scan_col_ip":           {"en": "IP Address",        "th": "IP"},
+    "scan_col_port":         {"en": "Port",              "th": "พอร์ต"},
+    "scan_col_info":         {"en": "Board Info",        "th": "ข้อมูลบอร์ด"},
+
     # ── Language selector ──
     "lbl_language":          {"en": "🌐 Language",        "th": "🌐 ภาษา"},
 }

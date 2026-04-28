@@ -150,10 +150,18 @@ class ControlPage(QWidget):
         self.test_tcp_btn = _btn("Test", enabled=True)
         self.test_tcp_btn.setToolTip("ทดสอบการเชื่อมต่อ (Ping Port)")
         
+        self.scan_btn = _btn(tr("btn_scan"), enabled=True)
+        self.scan_btn.setToolTip("สแกนหาบอร์ด CNC ใน WiFi/LAN อัตโนมัติ")
+        self.scan_btn.setStyleSheet(
+            "QPushButton { background-color: #1a6b3c; color: white; font-weight: bold; }"
+            "QPushButton:hover { background-color: #1e8449; }"
+        )
+        
         t_layout.addWidget(self.ip_lbl)
         t_layout.addWidget(self.ip_input, 1)
         t_layout.addWidget(self.port_tcp_lbl)
         t_layout.addWidget(self.port_tcp_input)
+        t_layout.addWidget(self.scan_btn)
         t_layout.addWidget(self.test_tcp_btn)
         self.conn_inputs.addWidget(self.tcp_widget)
 
@@ -509,6 +517,7 @@ class ControlPage(QWidget):
         self.refresh_btn.setText(tr("btn_refresh"))
         self.connect_btn.setText(tr("btn_connect"))
         self.disconnect_btn.setText(tr("btn_disconnect"))
+        self.scan_btn.setText(tr("btn_scan"))
 
         self.status_box.setTitle(tr("grp_status"))
 
